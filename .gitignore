@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+.pytest_cache/
+backend/data/
+backend/docs_prueba/
+docs_prueba/
+scripts/*.xlsx
+backend/index_anterior_backup.html
