@@ -43,7 +43,7 @@ apagado, el portal sigue igual (reintenta 3 veces y deja una línea en la consol
 `workflows/portal-limpieza-semanal.json`: cada lunes a las 9:00 n8n le pregunta al portal (`GET /api/cleanup/preview`, solo mira)
 qué archivos de revisiones viejas irían a OBSOLETO y, si hay alguno, arma el aviso. **La limpieza en sí la ejecuta una persona**
 de Ingeniería o Sistemas desde el portal; el usuario de servicio no puede. Hay que pegar su token (`python servicio_n8n.py`)
-en el nodo HTTP, reemplazando `PEGAR_ACA_EL_TOKEN`. El último nodo de cada flujo es un marcador: se reemplaza por el de correo o Slack.
+en el nodo HTTP, reemplazando `PEGAR_ACA_EL_TOKEN`. El último nodo de cada flujo es «Enviar correo» (Gmail, correo con formato HTML): al importar hay que elegirle la credencial de Gmail. Los avisos de prueba salen a `cobranzas@servelec.com.ar`; para producción hay que cambiar el destinatario y usar una cuenta de la empresa.
 
 ## Qué NO se sube a este repositorio
 

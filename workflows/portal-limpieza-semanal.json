@@ -84,7 +84,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Arma el texto del aviso semanal con lo que devolvió el portal.\nconst r = $input.first().json;\nconst lista = (r.moved || []).slice(0, 15).map(m => `• ${m.file}  (se queda ${m.keep})`).join('\\n');\nconst mas = r.count > 15 ? `\\n… y ${r.count - 15} más.` : '';\nconst texto = `Limpieza semanal: hay ${r.count} archivo(s) de revisiones viejas para mandar a OBSOLETO.\\n\\n${lista}${mas}\\n\\n` +\n              `Para ejecutarla: portal → Limpieza → Ejecutar. ${r.portal_url || ''}`;\nreturn [{ json: { count: r.count, texto } }];"
+        "jsCode": "// Arma el aviso semanal: texto simple + versión HTML con tabla y botón.\nconst r = $input.first().json;\nconst esc = (s) => String(s ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst base = (p) => String(p).split('/').pop();\nconst dir = (p) => String(p).split('/').slice(0, -1).join(' › ');\nconst filas = (r.moved || []).slice(0, 20).map((m) => `\n  <tr>\n    <td style=\"padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827\">\n      <b>${esc(base(m.file))}</b><br><span style=\"color:#6b7280;font-size:12px\">${esc(dir(m.file))}</span></td>\n    <td style=\"padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#047857;white-space:nowrap\">${esc(m.keep)}</td>\n  </tr>`).join('');\nconst mas = r.count > 20 ? `<p style=\"color:#6b7280;font-size:12px\">… y ${r.count - 20} más. Están todas en el portal.</p>` : '';\nconst url = r.portal_url || 'http://127.0.0.1:8000';\nconst html = `\n<div style=\"font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111827\">\n  <div style=\"background:#1e3a5f;color:#fff;padding:18px 22px;border-radius:10px 10px 0 0\">\n    <div style=\"font-size:12px;opacity:.8;letter-spacing:.04em\">PORTAL DE DOCUMENTACIÓN · SERVELEC</div>\n    <div style=\"font-size:20px;font-weight:600;margin-top:4px\">Limpieza semanal</div>\n  </div>\n  <div style=\"border:1px solid #e5e7eb;border-top:0;padding:20px 22px;border-radius:0 0 10px 10px\">\n    <p style=\"font-size:15px;margin:0 0 14px\">Hay <b>${r.count} archivo${r.count === 1 ? '' : 's'}</b> de revisiones anteriores para mandar a la carpeta <b>OBSOLETO</b>. Todavía no se movió nada.</p>\n    <table style=\"width:100%;border-collapse:collapse;border:1px solid #e5e7eb\">\n      <thead><tr style=\"background:#f3f4f6\">\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280\">Se mueve a OBSOLETO</th>\n        <th style=\"text-align:left;padding:8px 12px;font-size:12px;color:#6b7280\">Se queda</th></tr></thead>\n      <tbody>${filas}</tbody>\n    </table>\n    ${mas}\n    <p style=\"margin:20px 0 6px\"><a href=\"${esc(url)}\" style=\"background:#1e3a5f;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:14px;display:inline-block\">Abrir el portal</a></p>\n    <p style=\"color:#6b7280;font-size:12px;margin:10px 0 0\">Para ejecutarla: Limpieza → Ejecutar. Solo Ingeniería y Sistemas pueden hacerlo.</p>\n  </div>\n</div>`;\nconst lista = (r.moved || []).slice(0, 15).map((m) => `• ${m.file}  (se queda ${m.keep})`).join('\\n');\nconst texto = `Limpieza semanal: hay ${r.count} archivo(s) de revisiones viejas para mandar a OBSOLETO.\\n\\n${lista}\\n\\nPara ejecutarla: portal → Limpieza → Ejecutar. ${url}`;\nreturn [{ json: { count: r.count, asunto: `Portal SERVELEC: limpieza semanal (${r.count} archivo${r.count === 1 ? '' : 's'})`, texto, html } }];\n"
       },
       "id": "aa66a74d-6a55-4bca-8b3a-5b58d30f58f1",
       "name": "Armar texto",
@@ -96,11 +96,17 @@
       ]
     },
     {
-      "parameters": {},
-      "id": "25b4885d-2ec2-41d1-a1d2-eb168e4dfb29",
-      "name": "Acá se enviará el correo o Slack",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
+      "parameters": {
+        "sendTo": "cobranzas@servelec.com.ar",
+        "subject": "={{ $json.asunto }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "cc984db4-4e1e-4f84-964c-293f93e5c2b2",
+      "name": "Enviar correo",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
         1040,
         -80
@@ -146,7 +152,7 @@
       "main": [
         [
           {
-            "node": "Acá se enviará el correo o Slack",
+            "node": "Enviar correo",
             "type": "main",
             "index": 0
           }
