@@ -16,6 +16,7 @@ PERMS = {
     "revert": ["Gerencia", "Sistemas"],
     "revs": ["Ingeniería", "Gerencia", "Sistemas"],
     "cleanup": ["Ingeniería", "Sistemas"],
+    "cleanup_view": ["Ingeniería", "Sistemas", SERVICE_ROLE],        # solo mirar que habria para limpiar (n8n lo usa cada semana)
     "magnus": ROLES,
     "magnus_run": ["Ingeniería", "Sistemas"],
     "magnus_alta": ["Abastecimiento", "Ingeniería", "Sistemas"],

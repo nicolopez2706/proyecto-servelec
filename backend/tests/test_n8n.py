@@ -117,3 +117,21 @@ def test_usuario_de_servicio_pide_pero_no_decide(env):
     con = services.connect()
     con.execute("UPDATE users SET active=0 WHERE email='n8n@x'"); con.commit(); con.close()
     assert dispatch("GET", "/api/orders", {}, {}, tok)[0] == 401      # desactivado: el token deja de servir
+
+
+def test_vista_previa_de_limpieza_para_n8n(env):
+    services, u, docs, _ = env
+    from app.router import dispatch
+    from app.security import make_token
+    d = docs / "MODULOS/MDA300"
+    (d / "MDA300_L1V1R0_10-10-24.xlsx").write_bytes((d / "MDA300_L1V1R2_10-10-24.xlsx").read_bytes())
+    (d / "MDA300_L1V1R1_10-10-24.xlsx").write_bytes(b"r1")
+    con = services.connect()
+    con.execute("INSERT INTO users(email,name,role,pw_hash) VALUES('n8n@x','Automatización (n8n)',?,'x')", (SERVICE_ROLE,))
+    con.commit(); con.close()
+    tok = make_token("n8n@x")
+    st, r = dispatch("GET", "/api/cleanup/preview", {}, {}, tok)
+    assert st == 200 and r["count"] == 2 and not r["truncated"]
+    assert (d / "MDA300_L1V1R0_10-10-24.xlsx").exists()               # solo mira, no mueve nada
+    assert dispatch("POST", "/api/cleanup", {}, {"dry_run": False}, tok)[0] == 403   # ejecutar la limpieza no le toca
+    assert dispatch("GET", "/api/cleanup/preview", {}, {}, make_token("ab@x"))[0] == 403

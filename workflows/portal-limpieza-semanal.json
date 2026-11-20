@@ -1,0 +1,162 @@
+{
+  "name": "Portal SERVELEC - limpieza semanal",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "a27e14f2-2d8d-4db4-abe4-1157ae3c51a8",
+      "name": "Cada lunes 9:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:8000/api/cleanup/preview",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer PEGAR_ACA_EL_TOKEN"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "30e50f0b-7d53-4d2d-86e3-9786771851fc",
+      "name": "Pedir al portal qué limpiaría",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f749142e-7825-48fc-a688-e2f9fff2ee5c",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e05bc74a-4845-4e34-b463-7bef8c31f6e5",
+      "name": "¿Hay algo para limpiar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma el texto del aviso semanal con lo que devolvió el portal.\nconst r = $input.first().json;\nconst lista = (r.moved || []).slice(0, 15).map(m => `• ${m.file}  (se queda ${m.keep})`).join('\\n');\nconst mas = r.count > 15 ? `\\n… y ${r.count - 15} más.` : '';\nconst texto = `Limpieza semanal: hay ${r.count} archivo(s) de revisiones viejas para mandar a OBSOLETO.\\n\\n${lista}${mas}\\n\\n` +\n              `Para ejecutarla: portal → Limpieza → Ejecutar. ${r.portal_url || ''}`;\nreturn [{ json: { count: r.count, texto } }];"
+      },
+      "id": "aa66a74d-6a55-4bca-8b3a-5b58d30f58f1",
+      "name": "Armar texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -80
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "25b4885d-2ec2-41d1-a1d2-eb168e4dfb29",
+      "name": "Acá se enviará el correo o Slack",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Cada lunes 9:00": {
+      "main": [
+        [
+          {
+            "node": "Pedir al portal qué limpiaría",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir al portal qué limpiaría": {
+      "main": [
+        [
+          {
+            "node": "¿Hay algo para limpiar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay algo para limpiar?": {
+      "main": [
+        [
+          {
+            "node": "Armar texto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Armar texto": {
+      "main": [
+        [
+          {
+            "node": "Acá se enviará el correo o Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

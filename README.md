@@ -9,7 +9,7 @@ Portal y motor que cambian un código por otro (X → Y) en las planillas de doc
 |---|---|
 | `backend/` | Portal y motor (FastAPI + SQLite). Lógica en `app/`, pruebas en `tests/`. Ver `backend/README.md`. |
 | `scripts/` | Scripts sueltos de práctica anteriores al portal. |
-| `workflows/` | Flujos de n8n listos para importar (`portal-avisos.json`). |
+| `workflows/` | Flujos de n8n listos para importar (`portal-avisos.json`, `portal-limpieza-semanal.json`). |
 
 ## Arranque rápido (Windows, PowerShell, desde `backend`)
 
@@ -37,6 +37,13 @@ apagado, el portal sigue igual (reintenta 3 veces y deja una línea en la consol
 4. Para que n8n **consulte** el portal (lo que usará el asistente): `python servicio_n8n.py` crea el usuario de servicio
    «Automatización» (puede ver, simular, pedir cambios y avisar códigos faltantes; **nunca aprueba, revierte ni administra**)
    y muestra su token. En n8n va como encabezado `Authorization: Bearer <token>`. `python servicio_n8n.py --desactivar` lo apaga.
+
+### Limpieza semanal (paso A4)
+
+`workflows/portal-limpieza-semanal.json`: cada lunes a las 9:00 n8n le pregunta al portal (`GET /api/cleanup/preview`, solo mira)
+qué archivos de revisiones viejas irían a OBSOLETO y, si hay alguno, arma el aviso. **La limpieza en sí la ejecuta una persona**
+de Ingeniería o Sistemas desde el portal; el usuario de servicio no puede. Hay que pegar su token (`python servicio_n8n.py`)
+en el nodo HTTP, reemplazando `PEGAR_ACA_EL_TOKEN`. El último nodo de cada flujo es un marcador: se reemplaza por el de correo o Slack.
 
 ## Qué NO se sube a este repositorio
 

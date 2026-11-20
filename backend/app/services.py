@@ -546,6 +546,13 @@ def run_cleanup(user, dry_run=False):
     return {"moved": moved, "dry_run": dry_run}
 
 
+def cleanup_preview(user):
+    """Que archivos mandaria a OBSOLETO la limpieza, sin tocar nada. Lo consulta n8n cada semana para avisar."""
+    require(user, "cleanup_view")
+    moved = engine.cleanup_folders(settings.docs_root, dry_run=True)
+    return {"count": len(moved), "moved": moved[:200], "truncated": len(moved) > 200, "portal_url": settings.portal_url}
+
+
 def changes_log(user, q="", limit=300):
     """Historial de cambios de codigo ya aplicados: «Se cambio X por Y», cuando, quien lo pidio y quien lo aprobo."""
     require(user, "view")

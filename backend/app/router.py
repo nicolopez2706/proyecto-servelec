@@ -59,6 +59,7 @@ ROUTES = [
     ("GET", r"/api/conv/([^/]+)/([^/]+)", lambda u, m, q, b: services.get_conv(u, m[0], m[1])),
     ("GET", r"/api/search", lambda u, m, q, b: services.search(u, q.get("q", ""))),
     ("GET", r"/api/revisions", lambda u, m, q, b: services.revision_status(u)),
+    ("GET", r"/api/cleanup/preview", lambda u, m, q, b: services.cleanup_preview(u)),
     ("POST", r"/api/cleanup", lambda u, m, q, b: services.run_cleanup(u, bool(b.get("dry_run", True)))),
     ("GET", r"/api/links", lambda u, m, q, b: services.links_report(u)),
     ("POST", r"/api/links/repair", lambda u, m, q, b: services.links_repair(u, bool(b.get("dry_run", True)))),
