@@ -37,6 +37,7 @@ PUBLIC = {("POST", "/api/login")}
 ROUTES = [
     ("POST", r"/api/login", _login),
     ("GET", r"/api/me", lambda u, m, q, b: {"user": u, "perms": _perms(u), "read_only": settings.read_only, "warnings": engine.system_warnings(settings.docs_root, wait=False) if _perms(u) else []}),
+    ("POST", r"/api/me/password", lambda u, m, q, b: services.change_password(u, b.get("current", ""), b.get("new", ""))),
     ("GET", r"/api/health", _health),
     ("GET", r"/api/people", lambda u, m, q, b: services.people(u)),
     ("GET", r"/api/codes", lambda u, m, q, b: services.catalog_list(u, q.get("q", ""))),
@@ -60,6 +61,7 @@ ROUTES = [
     ("POST", r"/api/cleanup", lambda u, m, q, b: services.run_cleanup(u, bool(b.get("dry_run", True)))),
     ("GET", r"/api/links", lambda u, m, q, b: services.links_report(u)),
     ("POST", r"/api/links/repair", lambda u, m, q, b: services.links_repair(u, bool(b.get("dry_run", True)))),
+    ("GET", r"/api/changes", lambda u, m, q, b: services.changes_log(u, q.get("q", ""))),
     ("GET", r"/api/audit", lambda u, m, q, b: services.list_audit(u)),
     ("GET", r"/api/users", lambda u, m, q, b: services.list_users(u)),
     ("POST", r"/api/users", lambda u, m, q, b: services.create_user(u, b.get("email", ""), b.get("name", ""), b.get("role", ""), b.get("password", "")) or {"ok": True}),

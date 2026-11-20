@@ -130,8 +130,8 @@ const can = (p) => S.perms.includes(p);
 const pl = (n, w) => `${n} ${n === 1 ? w : w === 'acceso directo' ? 'accesos directos' : w + 's'}`;
 const fdate = (iso) => iso ? new Date(iso).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 const base = (p) => String(p || '').split(/[\\/]/).pop();
-const ICON = { inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', revisiones: 'layers', accesos: 'link', auditoria: 'shield', usuarios: 'users', estado: 'server' };
-const TINT = { inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', revisiones: 't-gr', accesos: 't-tl', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
+const ICON = { inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', historial: 'clock', revisiones: 'layers', accesos: 'link', auditoria: 'shield', usuarios: 'users', estado: 'server' };
+const TINT = { inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', historial: 't-gr', revisiones: 't-gr', accesos: 't-tl', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
 const ic = (n, c = '') => `<svg class="ic ${c}" aria-hidden="true" viewBox="0 0 24 24"><use href="#i-${n}"/></svg>`;
 const chip = (n, t, c = '') => `<span class="chip ${t} ${c}">${ic(n)}</span>`;
 const head = (r, h, lead, right) => `<div class="phead">${chip(ICON[r], TINT[r])}<div class="pt"><h1>${h}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</div>${right ? `<div class="right">${right}</div>` : ''}</div>`;
@@ -181,7 +181,7 @@ function loginView(msg) {
 /* ====================== estructura ====================== */
 const NAV = [
   ['Trabajo', [['inicio', 'Inicio'], ['pedidos', 'Pedidos'], ['nuevo', 'Cambiar un código'], ['reemplazos', 'Reemplazos posibles'], ['codigos', 'Códigos'], ['solicitudes', 'Códigos que faltan'], ['buscar', 'Buscar en planillas']]],
-  ['Control', [['revisiones', 'Revisiones y obsoletos', 'revs'], ['accesos', 'Accesos directos', 'links'], ['auditoria', 'Auditoría', 'audit']]],
+  ['Control', [['historial', 'Historial de cambios'], ['revisiones', 'Revisiones y obsoletos', 'revs'], ['accesos', 'Accesos directos', 'links'], ['auditoria', 'Auditoría', 'audit']]],
   ['Administración', [['usuarios', 'Usuarios', 'admin'], ['estado', 'Estado del sistema', 'admin']]],
 ];
 const LABEL = {}; NAV.forEach(([g, items]) => items.forEach((i) => { LABEL[i[0]] = i[1]; }));
@@ -193,7 +193,7 @@ function shell(route, inner) {
   }).join('');
   return `<div id="app"><aside><div class="brand"><img src="/static/logo.png" alt="SERVELEC"></div>${nav}<div class="sidefoot">${ic('zap')}<span>Portal de documentación</span></div></aside><div class="scrim" data-act="menu"></div><main>
   <div class="top"><button class="btn ico burger" data-act="menu" aria-label="Abrir el menú">${ic('menu')}</button><span class="crumb">${ICON[route] ? ic(ICON[route]) : ''}${esc(LABEL[route] || 'Portal de documentación')}</span>
-  <span class="right who">${avatar(S.user.name)}<span class="nm"><b>${esc(S.user.name)}</b><span class="muted small">${esc(S.user.role)}</span></span><button class="btn sm" data-act="logout">${ic('log-out', 'sm')} Salir</button></span></div>
+  <span class="right who">${avatar(S.user.name)}<span class="nm"><b>${esc(S.user.name)}</b><span class="muted small">${esc(S.user.role)}</span></span><button class="btn sm" data-act="chpw" title="Cambiar mi clave">${ic('lock', 'sm')} Mi clave</button><button class="btn sm" data-act="logout">${ic('log-out', 'sm')} Salir</button></span></div>
   <div class="page">${(S.warn || []).map((w) => `<div class="notice bad"><b>Atención:</b> ${esc(w.text)}</div>`).join('')}${S.ro ? '<div class="notice info"><b>Modo solo lectura.</b> Podés buscar, simular y pedir cambios, pero no se aplica ni se revierte nada hasta que se saque <span class="mono">READ_ONLY</span> del archivo .env.</div>' : ''}${inner}</div></main></div>`;
 }
 async function refreshBadges() {
@@ -368,6 +368,14 @@ V.revisiones = async () => {
   <div class="panel"><div class="ph">${h2i('layers', 'Qué detecta la limpieza')}${can('cleanup') ? `<button class="btn primary right" data-act="cleanup">${ic('refresh')} Ejecutar la limpieza ahora</button>` : ''}</div>${s.por_limpiar.length ? `<table><tbody>${s.por_limpiar.map((m) => `<tr><td class="mono small">${esc(m.file)}</td><td class="small">pasa a OBSOLETO; queda vigente <b>${esc(m.keep)}</b>${m.overwrote ? ' (pisa uno que ya estaba)' : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Todo en orden: una sola revisión vigente por versión.</p>'}</div>`;
 };
 
+V.historial = async (arg, q) => {
+  const t = q.get('q') || '';
+  const list = await api('GET', '/api/changes' + (t ? '?q=' + encodeURIComponent(t) : ''));
+  const when = (x) => (x ? esc(String(x).replace('T', ' ').slice(0, 16)) : '');
+  const body = list.length ? `<div style="overflow:auto"><table><thead><tr><th>Cuándo</th><th>Cambio</th><th>Alcance</th><th>Lo pidió</th><th>Lo aprobó</th><th>Estado</th></tr></thead><tbody>${list.map((c) => `<tr class="click" data-go="pedidos/${c.order}"><td class="muted small">${when(c.at)}</td><td>Se cambió ${codeTag(c.from)} por ${codeTag(c.to)}${c.reason ? `<div class="muted small">${esc(c.reason)}</div>` : ''}</td><td>${pl(c.cells, 'celda')} en ${pl(c.files, 'archivo')}</td><td>${esc(c.requested_by)}</td><td>${esc(c.approved_by)}</td><td>${pill(c.status)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">Todavía no hay cambios de códigos aplicados' + (t ? ' que coincidan con esa búsqueda' : '') + '.</p>';
+  return head('historial', 'Historial de cambios', 'Cada cambio de código que se aplicó en las planillas. Tocá una fila para ver el pedido completo.') + `<div class="panel"><form data-form="histsearch" class="row2">${sbox('q', t, 'Buscar un código, por ejemplo T46081')}<button class="btn primary" type="submit">Buscar</button></form></div><div class="panel">${body}</div>`;
+};
+
 V.auditoria = async () => {
   const list = await api('GET', '/api/audit');
   return head('auditoria', 'Auditoría', 'Registro de lo que pasó en el sistema: quién, qué y cuándo.') + `<div class="panel" style="overflow:auto"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Detalle</th></tr></thead><tbody>${list.map((a) => `<tr><td class="small">${fdate(a.at)}</td><td>${esc(nameOf(a.by))}</td><td>${esc(a.action)}</td><td class="small muted">${esc(a.target || '')} ${esc(a.detail || '')}</td></tr>`).join('')}</tbody></table></div>`;
@@ -424,6 +432,7 @@ document.addEventListener('click', (e) => {
   const o = window.__order;
   guard(async () => {
     if (a === 'logout') return logout();
+    if (a === 'chpw') return modal(`${h2i('lock', 'Cambiar mi clave')}<form data-form="chpw"><div class="f"><label for="pw0">Clave actual</label><input id="pw0" name="current" type="password" autocomplete="current-password" required></div><div class="f"><label for="pw1">Clave nueva (8 o más caracteres)</label><input id="pw1" name="new" type="password" minlength="8" autocomplete="new-password" required></div><div class="f"><label for="pw2">Repetir la clave nueva</label><input id="pw2" name="again" type="password" minlength="8" autocomplete="new-password" required></div><div class="acts"><button class="btn primary" type="submit">${ic('check')} Guardar</button><button class="btn" type="button" data-act="mclose">Cancelar</button></div></form>`);
     if (a === 'menu') return document.body.classList.toggle('nav-open');
     if (a === 'showpw') { const i = $('#pw'); i.type = i.type === 'password' ? 'text' : 'password'; return; }
     if (a === 'mclose') return closeModal();
@@ -502,10 +511,12 @@ document.addEventListener('submit', (e) => {
         return;
       }
       case 'reemp': { const r = await api('POST', '/api/orders', { type: 'reemplazos', params: d }); toast('Pedido enviado a aprobación'); location.hash = '#/pedidos/' + r.id; return; }
+      case 'histsearch': location.hash = '#/historial' + (d.q ? '?q=' + encodeURIComponent(d.q) : ''); return;
       case 'codesearch': location.hash = '#/codigos?q=' + encodeURIComponent(d.q); return;
       case 'search': location.hash = '#/buscar?q=' + encodeURIComponent(d.q); return;
       case 'req': await api('POST', '/api/requests', d); toast('Aviso enviado a Ingeniería'); return render();
       case 'gen': await api('POST', '/api/codes', { ...d, request_id: d.request_id ? Number(d.request_id) : null }); closeModal(); toast('Código generado'); return render();
+      case 'chpw': if (d.new !== d.again) throw new Error('Las dos claves nuevas no coinciden.'); await api('POST', '/api/me/password', { current: d.current, new: d.new }); closeModal(); toast('Clave cambiada'); return;
       case 'newuser': await api('POST', '/api/users', d); toast('Usuario creado'); S.names = null; S.user = null; return render();
     }
   });

@@ -59,6 +59,27 @@ def get_user(email):
         con.close()
 
 
+def change_password(user, current, new):
+    """Cada persona cambia su propia clave. Pide la clave actual para que nadie la cambie desde una sesion abierta ajena."""
+    if not current or not new:
+        raise ValueError("Completá la clave actual y la nueva.")
+    if len(new) < 8:
+        raise ValueError("La clave nueva debe tener al menos 8 caracteres.")
+    if new == current:
+        raise ValueError("La clave nueva tiene que ser distinta de la actual.")
+    con = connect()
+    try:
+        r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (user["email"],)).fetchone()
+        if not r or not check_password(current, r["pw_hash"]):
+            raise ValueError("La clave actual no es correcta.")
+        con.execute("UPDATE users SET pw_hash=? WHERE email=?", (hash_password(new), user["email"]))
+        audit(con, user["email"], "Cambió su clave")
+        con.commit()
+        return {"ok": True}
+    finally:
+        con.close()
+
+
 def create_user(actor, email, name, role, password):
     require(actor, "admin")
     if role not in ROLES:
@@ -522,6 +543,32 @@ def run_cleanup(user, dry_run=False):
         finally:
             con.close()
     return {"moved": moved, "dry_run": dry_run}
+
+
+def changes_log(user, q="", limit=300):
+    """Historial de cambios de codigo ya aplicados: «Se cambio X por Y», cuando, quien lo pidio y quien lo aprobo."""
+    require(user, "view")
+    q = (q or "").strip().upper()
+    con = connect()
+    try:
+        names = {r["email"]: r["name"] for r in con.execute("SELECT email,name FROM users")}
+        out = []
+        for r in con.execute("SELECT * FROM orders WHERE type='codigo' AND status IN ('completado','parcial','revertido') ORDER BY id DESC"):
+            params = json.loads(r["params"])
+            old, new = params.get("from", ""), params.get("to", "")
+            if q and q not in old.upper() and q not in new.upper():
+                continue
+            res = json.loads(r["result"]) if r["result"] else {}
+            out.append({"order": r["id"], "at": r["decided_at"], "from": old, "to": new, "status": r["status"],
+                        "requested_by": names.get(r["created_by"], r["created_by"]),
+                        "approved_by": names.get(r["decided_by"], r["decided_by"] or ""),
+                        "files": len(res.get("done", [])), "cells": res.get("changes", 0),
+                        "reason": params.get("reason", ""), "mode": params.get("rev_mode", "")})
+            if len(out) >= limit:
+                break
+        return out
+    finally:
+        con.close()
 
 
 def list_audit(user, limit=200):

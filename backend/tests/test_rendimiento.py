@@ -207,3 +207,54 @@ def test_consulta_a_la_red_que_se_cuelga_se_corta_por_tiempo(monkeypatch):
     assert engine._net_call(lambda p: True, "C:\\local\\x.xlsx") is True      # lo local no se toca
     liberar.set()
     engine._HOSTS.clear(); engine._DRV.clear()
+
+
+def test_cambiar_la_propia_clave(env):
+    services, u, docs, data = env
+    me = u["ab@x"]
+    with pytest.raises(ValueError, match="no es correcta"):
+        services.change_password(me, "mala", "nuevaclave1")
+    with pytest.raises(ValueError, match="8 caracteres"):
+        services.change_password(me, "clave1234", "corta")
+    with pytest.raises(ValueError, match="distinta"):
+        services.change_password(me, "clave1234", "clave1234")
+    assert services.change_password(me, "clave1234", "nuevaclave1") == {"ok": True}
+    assert services.authenticate("ab@x", "clave1234") is None
+    assert services.authenticate("ab@x", "nuevaclave1")["email"] == "ab@x"
+    con = services.connect()
+    assert con.execute("SELECT 1 FROM audit WHERE action='Cambió su clave' AND by='ab@x'").fetchone()
+    con.close()
+
+
+def test_cambiar_clave_por_http(env):
+    from app.router import dispatch
+    from app.security import make_token
+    services, u, docs, data = env
+    tok = make_token("ing@x")
+    st, r = dispatch("POST", "/api/me/password", {}, {"current": "clave1234", "new": "otraclave99"}, tok)
+    assert st == 200 and r == {"ok": True}
+    st, r = dispatch("POST", "/api/me/password", {}, {"current": "clave1234", "new": "otraclave98"}, tok)
+    assert st == 400 and "no es correcta" in r["detail"]
+    assert dispatch("POST", "/api/me/password", {}, {"current": "x", "new": "y" * 9}, None)[0] == 401
+
+
+def test_historial_de_cambios_de_codigos(env):
+    from test_core import pedir
+    from app.router import dispatch
+    from app.security import make_token
+    services, u, docs, data = env
+    assert services.changes_log(u["ab@x"]) == []                # sin cambios aplicados todavia
+    o = pedir(services, u)
+    assert services.changes_log(u["ab@x"]) == []                # un pedido pendiente no es un cambio
+    services.approve(u["ger@x"], o["id"])
+    h = services.changes_log(u["ab@x"])
+    assert len(h) == 1
+    r = h[0]
+    assert (r["from"], r["to"], r["order"]) == ("DIS206AA", "DIS206BA", o["id"])
+    assert r["requested_by"] == "Luca" and r["approved_by"] == "Priscila" and r["status"] in ("completado", "parcial")
+    assert r["files"] >= 1 and r["cells"] >= 1 and r["at"]
+    assert services.changes_log(u["ab@x"], "dis206b") and services.changes_log(u["ab@x"], "zzz") == []
+    st, body = dispatch("GET", "/api/changes", {"q": "DIS206AA"}, {}, make_token("ab@x"))
+    assert st == 200 and body[0]["to"] == "DIS206BA"
+    services.revert(u["ger@x"], o["id"])
+    assert services.changes_log(u["ab@x"])[0]["status"] == "revertido"      # sigue en el historial, marcado

@@ -890,21 +890,65 @@ def _col_letter(n):
     return s
 
 
+_HEAD_CODE = re.compile(r"(?i)^\s*(c[oó]d(igo|\.)?(\s+(magnus|art[ií]culo|producto|material))?|codigoarticulo|c[oó]digo\s+\w+)\s*$")
+_HEAD_DESC = re.compile(r"(?i)^\s*(detalle|descripci[oó]n|denominaci[oó]n)\s*$")
+_HEAD_REF = re.compile(r"(?i)^\s*(referencias?|ref\.?|posici[oó]n|designaci[oó]n)\s*$")
+# lo que parece codigo pero no lo es cuando no esta en una columna de codigos: etiquetas de version (L1V1R0, PDS_V2R1)
+# y referencias de circuito (K1, X2, TR1, SW1)
+_NOT_CODE = re.compile(r"^(?:[LD]\d+V\d+R\d+|[A-Z_]*V\d+R\d+|[A-Z]{1,9}\d{1,2})$", re.I)
+_CODE_SHAPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.\-_]*")
+_CODE_COL_SHAPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.\-_/]*")
+
+
+def _code_columns(cells):
+    """({(hoja, columna): fila_del_encabezado} de codigos, {(hoja, columna)} de referencias, {hoja: columna} de descripcion).
+    Los encabezados se buscan en las primeras filas."""
+    cod, ref, desc = {}, set(), {}
+    for s_, c_, t in cells:
+        if len(t) > 40:
+            continue
+        m = re.fullmatch(r"([A-Z]+)(\d+)", c_)
+        if not m or int(m.group(2)) > 25:
+            continue
+        if _HEAD_CODE.match(t):
+            cod.setdefault((s_, m.group(1)), int(m.group(2)))
+        elif _HEAD_REF.match(t):
+            ref.add((s_, m.group(1)))
+        elif _HEAD_DESC.match(t):
+            desc.setdefault(s_, m.group(1))
+    return cod, ref, desc
+
+
 def code_usage(root):
     """{codigo: {cells, folders, desc}} para las celdas que parecen codigos. La descripcion es el texto
-    de la celda de la derecha (o de la siguiente con texto no numerico) en la misma fila."""
+    de la celda de la derecha (o de la siguiente con texto no numerico) en la misma fila.
+    Una celda debajo de un encabezado de codigo («Código», «Código Magnus»…) es un codigo. Fuera de esas columnas
+    solo cuenta si tiene forma de codigo y no es una etiqueta de version ni una referencia de circuito (K1, X2, L1V1R0)."""
     root = Path(root)
     data, _ = scan(root, settings.scan_ttl)
     use = {}
     for p, cells in data.items():
         fol = rel_folder(root, p)
         grid = {(s, c): t for s, c, t in cells}
+        cod, ref, dcol = _code_columns(cells)
         for s_, c_, t in cells:
-            if " " in t or len(t) > 30 or not re.search(r"\d", t) or not re.search(r"[A-Za-z]", t) \
-                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-_]*", t):
+            col_l = re.match(r"[A-Z]+", c_).group(0)
+            row_n = int(c_[len(col_l):])
+            if (s_, col_l) in ref:
+                continue
+            en_col = (s_, col_l) in cod and row_n > cod[(s_, col_l)]
+            if en_col:
+                if " " in t or len(t) > 30 or not _CODE_COL_SHAPE.fullmatch(t) or t.replace(".", "").replace(",", "").isdigit():
+                    continue
+            elif " " in t or len(t) > 30 or not re.search(r"\d", t) or not re.search(r"[A-Za-z]", t) \
+                    or not _CODE_SHAPE.fullmatch(t) or _NOT_CODE.fullmatch(t):
                 continue
             e = use.setdefault(t.upper(), {"cells": 0, "folders": set(), "desc": ""})
             e["cells"] += 1; e["folders"].add(fol)
+            if not e["desc"] and en_col and s_ in dcol:         # la columna «Detalle»/«Descripción» de esa hoja
+                d_ = grid.get((s_, f"{dcol[s_]}{row_n}"))
+                if d_ and re.search(r"[A-Za-z]{3}", d_):
+                    e["desc"] = d_[:120]
             if not e["desc"]:
                 col, row = _split_coord(c_)
                 for k in (1, 2):
