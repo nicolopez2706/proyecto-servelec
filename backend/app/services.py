@@ -4,7 +4,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from . import engine
+from . import engine, events
 from .config import settings
 from .db import connect
 from .permissions import PermissionDenied, can, require, ROLES
@@ -26,6 +26,7 @@ def now():
 # ---------- auditoria / eventos ----------
 def audit(con, by, action, target="", detail=""):
     con.execute("INSERT INTO audit(at,by,action,target,detail) VALUES(?,?,?,?,?)", (now(), by, action, target, detail))
+    events.emit(action, target, detail, by)         # aviso a n8n (en segundo plano, si esta configurado)
 
 
 def event(con, order_id, by, text):

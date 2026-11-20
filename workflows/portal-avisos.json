@@ -1,0 +1,119 @@
+{
+  "name": "Portal SERVELEC - avisos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "portal-eventos",
+        "options": {}
+      },
+      "id": "5a4a74fc-d213-471f-bc28-ab75b9a68792",
+      "name": "Aviso del portal",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "726fc3a7-c990-4493-b51f-05adad2b56a7"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Confirma que el aviso viene del portal y arma un texto listo para mandar por correo o Slack.\nconst ESPERADO = 'cambiar-por-una-clave-larga';   // la misma que N8N_WEBHOOK_SECRET en el .env del portal\nconst item = $input.first().json;\nconst token = (item.headers || {})['x-portal-token'] || '';\nif (ESPERADO && token !== ESPERADO) {\n  throw new Error('El aviso no trae la clave compartida correcta: se descarta.');\n}\nconst b = item.body || {};\nconst o = b.order || {};\nlet texto = b.action + (b.detail ? ' — ' + b.detail : '');\nif (b.event.startsWith('pedido')) {\n  const cambio = o.type === 'codigo' ? `${o.from} → ${o.to}` : `reemplazos de ${o.code}`;\n  texto = `Pedido #${o.id} (${cambio}): ${b.action}. Estado: ${o.status}. Lo pidió ${o.requested_by}` +\n          (o.decided_by ? `, lo aprobó ${o.decided_by}` : '') + `. ${o.url || ''}`;\n}\nreturn [{ json: { evento: b.event, texto, pedido: o, original: b } }];"
+      },
+      "id": "4557fe1b-4ed6-41a0-94fd-cfaeee9243ec",
+      "name": "Verificar y armar texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "466c1f4d-98a2-47b6-a5a7-412c270e0127",
+      "name": "Acá se enviará el correo o Slack (paso A4)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f1227522-4fc1-4ac3-954c-f9761b0e4107",
+      "name": "Probar a mano",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:8000/api/orders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer PEGAR_ACA_EL_TOKEN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "111fe600-d316-4ae6-9e46-71fc62ecf362",
+      "name": "Consultar pedidos del portal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Aviso del portal": {
+      "main": [
+        [
+          {
+            "node": "Verificar y armar texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar y armar texto": {
+      "main": [
+        [
+          {
+            "node": "Acá se enviará el correo o Slack (paso A4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Probar a mano": {
+      "main": [
+        [
+          {
+            "node": "Consultar pedidos del portal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

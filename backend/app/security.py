@@ -18,8 +18,8 @@ def check_password(pw: str, stored: str) -> bool:
         return False
 
 
-def make_token(email: str) -> str:
-    exp = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=settings.token_hours)
+def make_token(email: str, hours=None) -> str:
+    exp = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=hours or settings.token_hours)
     return jwt.encode({"sub": email, "exp": exp}, settings.secret_key, algorithm="HS256")
 
 

@@ -88,6 +88,28 @@ class Settings:
         return out
 
     @property
+    def n8n_url(self):
+        """N8N_WEBHOOK_URL: a donde el portal avisa lo que pasa (pedidos, codigos...). Vacio = no avisa."""
+        return os.getenv("N8N_WEBHOOK_URL", "").strip()
+
+    @property
+    def n8n_secret(self):
+        """N8N_WEBHOOK_SECRET: clave compartida; se envia en el encabezado X-Portal-Token para que n8n confirme que el aviso es del portal."""
+        return os.getenv("N8N_WEBHOOK_SECRET", "").strip()
+
+    @property
+    def n8n_delay(self):
+        try:
+            return max(0.0, float(os.getenv("N8N_DELAY", "1.5")))
+        except ValueError:
+            return 1.5
+
+    @property
+    def portal_url(self):
+        """PORTAL_URL: direccion del portal que se incluye en los avisos para armar enlaces. Sin barra final."""
+        return os.getenv("PORTAL_URL", "http://127.0.0.1:8000").strip().rstrip("/")
+
+    @property
     def db_path(self):
         return self.data_dir / "portal.db"
 
