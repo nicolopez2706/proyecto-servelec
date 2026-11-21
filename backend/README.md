@@ -11,15 +11,15 @@ faltan, búsqueda y auditoría. Formatos: **.xlsx, .ods y .xls** (el .xls necesi
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env        # abrir .env y cambiar SECRET_KEY por una frase larga
-python seed.py                # crea la base y los 5 usuarios de ejemplo (clave inicial: cambiar123)
+copy .env.example .env        # abrir .env y revisar DOCS_ROOT (SECRET_KEY se genera sola)
+python seed.py                # crea la base y los 5 usuarios; muestra UNA vez la clave temporal de cada uno
 python crear_docs_prueba.py   # planillas de prueba (NO apuntar a la carpeta real todavía)
 python -m pytest -q tests     # deberían pasar todas
 uvicorn app.main:app --reload
 ```
-Después abrí **http://localhost:8000** en el navegador. Ingresá con `n.lopez@servelec.com.ar` / `cambiar123`.
+Después abrí **http://localhost:8000** en el navegador. Ingresá con `n.lopez@servelec.com.ar` y la clave temporal que mostró `seed.py`; el portal te pide elegir una propia.
 
-Para probar los roles, ingresá con los otros usuarios (misma clave): `abastecimiento@servelec.com.ar`,
+Para probar los roles, ingresá con los otros usuarios (cada uno con su clave temporal): `abastecimiento@servelec.com.ar`,
 `l.bazzoli@servelec.com.ar` (Ingeniería), `p.delfino@servelec.com.ar` y `v.delfino@servelec.com.ar` (Gerencia).
 En **Estado del sistema** (solo Sistemas) se ve si encontró LibreOffice y qué carpeta está usando.
 
@@ -68,8 +68,28 @@ antes de tocarlo y todo pedido se puede revertir, pero conviene validar con dato
 - Al arrancar el portal precalienta el índice en segundo plano, y Buscar y Códigos reusan el recorrido de las carpetas durante `SCAN_TTL` segundos (30 por defecto). Los cambios y las simulaciones antes de aprobar siempre recorren de nuevo.
 - Si el servidor tiene carpetas enormes sin planillas (software, documentación web), excluirlas con `EXCLUDE_DIRS` acelera todo el recorrido.
 
+## Asistente
+Pantalla *Asistente*: entiende frases en español («cambiar X por Y», «qué código es…», «en qué planillas está…», «cómo viene el pedido N»). Funciona con reglas, sin IA externa; arma pedidos con **botón de confirmación** y nunca aprueba, revierte ni administra. `app/assistant.py` (si más adelante se usa un modelo de lenguaje, solo reemplazaría `interpretar()`).
+
+## Seguridad y claves
+- Cada usuario nace con una clave temporal distinta (`seed.py`) y el portal no lo deja seguir hasta que la cambia (mínimo 10 caracteres, sin claves comunes).
+- Al dar de alta desde *Usuarios*: si Sistemas escribe la clave inicial (por ejemplo una que la persona ya conoce), esa clave se **mantiene** y cambiarla es opcional (hay una casilla para obligarla). Si la deja vacía, el portal genera una temporal que sí hay que cambiar. Ojo: una clave tipo DNI es fácil de adivinar; el bloqueo por intentos ayuda, pero conviene que la cambien.
+- Los usuarios **desactivados** se pueden eliminar (botón *Eliminar* en *Usuarios*); su historial se conserva.
+- Sistemas puede restablecer la clave de alguien desde *Usuarios* (se muestra una temporal una sola vez); si se perdió la de Sistemas: `python reset_clave.py correo`.
+- 5 intentos fallidos seguidos bloquean ese correo 15 minutos (`LOGIN_MAX_FAILS`, `LOGIN_LOCK_MINUTES`).
+- `SECRET_KEY` se genera sola en `DATA_DIR\secret.key` si no se define. Los valores de ejemplo no se aceptan. Si cambia, hay que regenerar el token de n8n (`python servicio_n8n.py`).
+
+## Cuidados con las planillas
+- **`.xlsx`**: al guardar, el portal compara lo que tenía el original con lo que quedó. Si se perdieran imágenes, formas o cuadros de texto, gráficos, tablas dinámicas o segmentaciones, **no toca esa planilla** y lo informa en el pedido (cambiarla a mano). `PERMITIR_PERDIDA_XLSX=1` lo permite igual (no recomendado). Se necesita `Pillow` (está en `requirements.txt`): sin él las imágenes se perderían en silencio.
+- **Un cambio de planillas a la vez**: si dos personas aprueban pedidos al mismo tiempo, el portal los ejecuta uno después del otro; y dos aprobaciones del mismo pedido ejecutan una sola vez.
+
+## Control contra Magnus
+*Control → Control contra Magnus*. Se exporta Magnus a una planilla o CSV y se pone la ruta en `MAGNUS_EXPORT`. El portal detecta las columnas (o se indican con `MAGNUS_COL_CODIGO` / `MAGNUS_COL_DESC`), compara con las planillas y el catálogo y deja un informe Excel: *Faltan en Magnus*, *Descripción distinta*, *Solo en Magnus*. Solo informa. `app/magnus.py`.
+
+## Respaldo
+`python respaldo.py DESTINO [--n8n CARPETA]` copia base, `.env`, `secret.key` y datos de n8n; `--restaurar CARPETA` vuelve atrás. Detalle en `..\docs\INSTALACION_OFICINA.md`.
+
 ## Todavía no está
-- Control contra Magnus (a la espera de saber si hay API) y avisos por correo o Slack.
-- Tarea semanal automática (limpieza y control). La limpieza se ejecuta a mano desde *Revisiones y obsoletos*.
-- n8n y ingreso con la cuenta Google de la empresa (hoy correo y clave).
-- Cambiar la clave propia desde la pantalla (hoy la cambia Sistemas).
+- Conexión directa con Magnus (hoy es por archivo exportado) y con Google Sheets (cuenta de servicio de Google).
+- Ingreso con la cuenta Google de la empresa (hoy correo y clave).
+- Acceso desde internet con HTTPS (pendiente de decidir con Airsat: VPN o Cloudflare Tunnel).

@@ -3,7 +3,7 @@ Sirve para probar la pantalla en un entorno sin paquetes. Uso: python tests/devs
 import json, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.db import init_db  # noqa: E402
@@ -16,7 +16,11 @@ class H(BaseHTTPRequestHandler):
     def _send(self, status, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status); self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
+        self.send_header("Content-Length", str(len(data)))
+        from app.cabeceras import BASE
+        for k, v in BASE:                                    # mismas cabeceras que en el portal real (para probar que la pantalla las soporta)
+            self.send_header(k.decode(), v.decode())
+        self.end_headers(); self.wfile.write(data)
 
     def _go(self, method):
         u = urlparse(self.path)
@@ -26,12 +30,13 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n) or b"{}") if n else {}
         auth = self.headers.get("Authorization", "")
-        st, data = dispatch(method, u.path, dict(parse_qsl(u.query)), body, auth[7:] if auth.lower().startswith("bearer ") else None)
+        st, data = dispatch(method, unquote(u.path), dict(parse_qsl(u.query)), body, auth[7:] if auth.lower().startswith("bearer ") else None)
         self._send(st, data)
 
     do_GET = lambda s: s._go("GET")
     do_POST = lambda s: s._go("POST")
     do_PATCH = lambda s: s._go("PATCH")
+    do_DELETE = lambda s: s._go("DELETE")
 
     def log_message(self, *a):
         pass

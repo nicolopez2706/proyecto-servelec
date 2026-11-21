@@ -2,15 +2,31 @@
 reversion y auditoria. No depende de FastAPI (se prueba sola)."""
 import datetime as dt
 import json
+import math
+import secrets
+import threading
 from pathlib import Path
 
 from . import engine, events
 from .config import settings
 from .db import connect
-from .permissions import PermissionDenied, can, require, ROLES
+from .permissions import PermissionDenied, SERVICE_ROLE, can, require, ROLES
 from .security import check_password, hash_password
 
 OPEN = "pendiente"
+# Un solo cambio de planillas a la vez: si dos pedidos tocaran el mismo archivo al mismo tiempo, uno pisaría al otro.
+_FILES_LOCK = threading.RLock()
+
+
+def _claim(con, oid, status, **campos):
+    """Pasa el pedido de «pendiente» a otro estado en un solo paso. Si otra persona lo decidió un instante antes,
+    no cambia nada y avisa (así dos aprobaciones simultáneas no ejecutan dos veces)."""
+    sets = ", ".join(f"{k}=?" for k in campos)
+    cur = con.execute(f"UPDATE orders SET status=?{', ' + sets if sets else ''} WHERE id=? AND status=?",
+                      (status, *campos.values(), oid, OPEN))
+    if cur.rowcount != 1:
+        con.rollback()
+        raise ValueError("El pedido ya no está esperando decisión.")
 
 
 def _writable():
@@ -34,18 +50,73 @@ def event(con, order_id, by, text):
 
 
 # ---------- usuarios ----------
+class LoginLocked(Exception):
+    """Demasiados intentos fallidos: el ingreso de ese correo queda bloqueado un rato."""
+
+
+# Claves que no se aceptan como clave propia (las de siempre y la clave inicial vieja del prototipo).
+CLAVES_DEBILES = {"cambiar123", "12345678", "123456789", "1234567890", "password", "password1", "contraseña",
+                  "qwerty123", "servelec", "servelec123", "servelec2026", "abcd1234"}
+_ALFABETO_TEMPORAL = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin 0/O, 1/l/I: no se confunden al dictarla
+_clave_ficticia = None
+
+
+def _validar_clave(new, email=""):
+    if len(new) < 8:
+        raise ValueError("La clave nueva debe tener al menos 8 caracteres.")
+    if new.lower() in CLAVES_DEBILES:
+        raise ValueError("Esa clave es demasiado común. Elegí otra.")
+    if email and new.lower() == email.split("@")[0].lower():
+        raise ValueError("La clave no puede ser igual a tu correo.")
+
+
+def clave_temporal(n=10):
+    """Clave inicial aleatoria (para dar de alta o restablecer). Se muestra una sola vez y obliga a cambiarla."""
+    return "".join(secrets.choice(_ALFABETO_TEMPORAL) for _ in range(n))
+
+
 def user_public(r):
-    return {"email": r["email"], "name": r["name"], "role": r["role"], "active": bool(r["active"])}
+    return {"email": r["email"], "name": r["name"], "role": r["role"], "active": bool(r["active"]),
+            "must_change": bool(r["must_change"])}
+
+
+_LOGIN_LOCK = threading.Lock()
 
 
 def authenticate(email, password):
+    """Devuelve el usuario si la clave es correcta, None si no. Tras LOGIN_MAX_FAILS intentos fallidos seguidos de un
+    mismo correo, bloquea ese correo LOGIN_LOCK_MINUTES minutos (LoginLocked)."""
+    global _clave_ficticia
+    email = email.strip().lower()
     con = connect()
     try:
-        r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email.strip().lower(),)).fetchone()
-        if r and check_password(password, r["pw_hash"]):
+        corte = (dt.datetime.now() - dt.timedelta(minutes=settings.login_lock_minutes)).isoformat(timespec="seconds")
+        with _LOGIN_LOCK:       # contar e inscribir el intento en un solo paso: una ráfaga en paralelo no se salta el límite
+            n, ultimo = tuple(con.execute("SELECT COUNT(*), MAX(at) FROM login_fail WHERE email=? AND at>=?", (email, corte)).fetchone())
+            if n >= settings.login_max_fails:
+                pasaron = (dt.datetime.now() - dt.datetime.fromisoformat(ultimo)).total_seconds()
+                faltan = max(1, math.ceil((settings.login_lock_minutes * 60 - pasaron) / 60))
+                raise LoginLocked(f"Demasiados intentos fallidos. Probá de nuevo en {faltan} {'minuto' if faltan == 1 else 'minutos'}, "
+                                  "o pedile a Sistemas que restablezca tu clave.")
+            con.execute("INSERT INTO login_fail(email,at) VALUES(?,?)", (email, now()))     # se anota ya; si la clave es buena se borra
+            con.commit()
+        r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email,)).fetchone()
+        if r:
+            ok = check_password(password, r["pw_hash"])
+        else:                                   # mismo trabajo que con un correo real: no delata cuales existen
+            if _clave_ficticia is None:
+                _clave_ficticia = hash_password("ficticia")
+            check_password(password, _clave_ficticia)
+            ok = False
+        if ok:
+            con.execute("DELETE FROM login_fail WHERE email=?", (email,))
             audit(con, r["email"], "Ingresó")
             con.commit()
             return user_public(r)
+        con.execute("DELETE FROM login_fail WHERE at<?", ((dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds"),))
+        if n + 1 >= settings.login_max_fails:
+            audit(con, email, "Ingreso bloqueado por intentos fallidos", email, f"{settings.login_max_fails} intentos seguidos")
+        con.commit()
         return None
     finally:
         con.close()
@@ -64,16 +135,15 @@ def change_password(user, current, new):
     """Cada persona cambia su propia clave. Pide la clave actual para que nadie la cambie desde una sesion abierta ajena."""
     if not current or not new:
         raise ValueError("Completá la clave actual y la nueva.")
-    if len(new) < 8:
-        raise ValueError("La clave nueva debe tener al menos 8 caracteres.")
     if new == current:
         raise ValueError("La clave nueva tiene que ser distinta de la actual.")
+    _validar_clave(new, user["email"])
     con = connect()
     try:
         r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (user["email"],)).fetchone()
         if not r or not check_password(current, r["pw_hash"]):
             raise ValueError("La clave actual no es correcta.")
-        con.execute("UPDATE users SET pw_hash=? WHERE email=?", (hash_password(new), user["email"]))
+        con.execute("UPDATE users SET pw_hash=?, must_change=0 WHERE email=?", (hash_password(new), user["email"]))
         audit(con, user["email"], "Cambió su clave")
         con.commit()
         return {"ok": True}
@@ -81,17 +151,26 @@ def change_password(user, current, new):
         con.close()
 
 
-def create_user(actor, email, name, role, password):
+def create_user(actor, email, name, role, password="", force_change=False):
+    """Alta de usuario. Sin clave, el portal genera una temporal (se muestra una sola vez) y la persona tiene que cambiarla
+    en su primer ingreso. Si Sistemas escribe una clave (por ejemplo la que ya conoce la persona), esa clave se mantiene y
+    cambiarla es opcional, salvo que se pida obligarlo (force_change)."""
     require(actor, "admin")
     if role not in ROLES:
         raise ValueError("Rol inválido.")
-    if len(password) < 8:
-        raise ValueError("La clave debe tener al menos 8 caracteres.")
+    email = email.strip().lower()
+    if "@" not in email:
+        raise ValueError("Escribí un correo válido.")
+    generada = not password
+    password = password or clave_temporal()
+    if not generada:
+        _validar_clave(password, email)
     con = connect()
     try:
-        con.execute("INSERT INTO users(email,name,role,pw_hash) VALUES(?,?,?,?)",
-                    (email.strip().lower(), name.strip(), role, hash_password(password)))
-        audit(con, actor["email"], "Creó usuario", email, role)
+        obligar = 1 if (generada or force_change) else 0
+        con.execute("INSERT INTO users(email,name,role,pw_hash,must_change) VALUES(?,?,?,?,?)",
+                    (email, name.strip(), role, hash_password(password), obligar))
+        audit(con, actor["email"], "Creó usuario", email, role + ("" if obligar or generada else " (con la clave que eligió Sistemas, sin obligar a cambiarla)"))
         con.commit()
     except Exception as e:
         if "UNIQUE" in str(e):
@@ -99,6 +178,57 @@ def create_user(actor, email, name, role, password):
         raise
     finally:
         con.close()
+    return {"ok": True, "temp": password if generada else None}
+
+
+def reset_password(actor, email, new="", force_change=False):
+    """Sistemas restablece la clave de alguien que la olvido (o desbloquea su ingreso). Nadie puede ver la clave
+    anterior: se pone una temporal nueva, que se muestra una sola vez y obliga a cambiarla al ingresar."""
+    require(actor, "admin")
+    email = email.strip().lower()
+    generada = not new
+    new = new or clave_temporal()
+    if not generada:
+        _validar_clave(new, email)
+    con = connect()
+    try:
+        u = con.execute("SELECT role FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
+            raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:         # a ese usuario se le pondría must_change y n8n quedaría bloqueado
+            raise ValueError("El usuario de automatización no tiene clave de ingreso: su acceso es el token de servicio_n8n.py.")
+        con.execute("UPDATE users SET pw_hash=?, must_change=? WHERE email=?",
+                    (hash_password(new), 1 if (generada or force_change) else 0, email))
+        con.execute("DELETE FROM login_fail WHERE email=?", (email,))
+        audit(con, actor["email"], "Restableció la clave de", email)          # la clave nunca se guarda en la auditoria
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True, "temp": new if generada else None}
+
+
+def delete_user(actor, email):
+    """Elimina un usuario que ya está desactivado. Su historial (pedidos, auditoría) se conserva: ahí queda su correo."""
+    require(actor, "admin")
+    email = email.strip().lower()
+    con = connect()
+    try:
+        u = con.execute("SELECT role, active FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
+            raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:
+            raise ValueError("El usuario de automatización no se elimina desde acá (para apagarlo: python servicio_n8n.py --desactivar).")
+        if email == actor["email"]:
+            raise ValueError("No podés eliminarte a vos mismo.")
+        if u["active"]:
+            raise ValueError("Primero hay que desactivarlo; solo se eliminan usuarios desactivados.")
+        con.execute("DELETE FROM users WHERE email=?", (email,))
+        con.execute("DELETE FROM login_fail WHERE email=?", (email,))
+        audit(con, actor["email"], "Eliminó usuario", email)
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True}
 
 
 def list_users(actor):
@@ -114,6 +244,15 @@ def set_role(actor, email, role=None, active=None):
     require(actor, "admin")
     con = connect()
     try:
+        u = con.execute("SELECT role, active FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
+            raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:
+            raise ValueError("El usuario de automatización no se administra desde acá (python servicio_n8n.py).")
+        quedaria_sin_admin = (role is not None and role != "Sistemas") or active is False
+        if u["role"] == "Sistemas" and u["active"] and quedaria_sin_admin and not con.execute(
+                "SELECT 1 FROM users WHERE role='Sistemas' AND active=1 AND email<>?", (email,)).fetchone():
+            raise ValueError("Tiene que quedar al menos un usuario de Sistemas activo.")
         if role is not None:
             if role not in ROLES:
                 raise ValueError("Rol inválido.")
@@ -305,7 +444,7 @@ def reject(user, oid, comment=""):
         o = _order(con, oid)
         if o["status"] != OPEN:
             raise ValueError("El pedido ya no está esperando decisión.")
-        con.execute("UPDATE orders SET status='rechazado', decided_by=?, decided_at=? WHERE id=?", (user["email"], now(), oid))
+        _claim(con, oid, "rechazado", decided_by=user["email"], decided_at=now())
         event(con, oid, user["email"], "Rechazó el pedido." + (f" Motivo: {comment}" if comment else ""))
         audit(con, user["email"], "Rechazó pedido", f"#{oid}", comment)
         con.commit()
@@ -322,7 +461,7 @@ def cancel(user, oid):
             raise ValueError("Solo se cancelan pedidos pendientes.")
         if o["created_by"] != user["email"] and user["role"] != "Sistemas":
             raise PermissionDenied("Solo quien lo pidió (o Sistemas) puede cancelarlo.")
-        con.execute("UPDATE orders SET status='cancelado' WHERE id=?", (oid,))
+        _claim(con, oid, "cancelado")
         event(con, oid, user["email"], "Canceló el pedido.")
         audit(con, user["email"], "Canceló pedido", f"#{oid}")
         con.commit()
@@ -361,13 +500,13 @@ def approve(user, oid, comment="", folders=None):
                 event(con, oid, user["email"], f"Cambió las carpetas donde se aplica: queda en {len(chosen)} de {len(cand)}, "
                                                f"sacó {len(cand) - len(chosen)}.")
         params["scope"] = chosen
-        con.execute("UPDATE orders SET params=?, status='ejecutando', decided_by=?, decided_at=? WHERE id=?",
-                    (json.dumps(params), user["email"], now(), oid))
+        _claim(con, oid, "ejecutando", params=json.dumps(params), decided_by=user["email"], decided_at=now())
         event(con, oid, user["email"], "Aprobó el pedido." + (f" Comentario: {comment}" if comment else ""))
         audit(con, user["email"], "Aprobó pedido", f"#{oid}", f"{len(chosen)} carpetas")
         con.commit()
         try:
-            _execute(con, oid, user)
+            with _FILES_LOCK:
+                _execute(con, oid, user)
         except Exception as e:                      # que no quede "ejecutando" para siempre si algo falla
             res = {"done": [], "failed": [{"file": "(todo el pedido)", "why": f"error inesperado: {e}"}], "skipped": [],
                    "changes": 0, "unchanged": [], "links_updated": 0, "links_manual": []}
@@ -419,6 +558,7 @@ def _execute(con, oid, approver):
     if fresh["total_cells"] != json.loads(o["sim"])["total_cells"]:
         event(con, oid, "sistema", f"Se volvió a simular y cambió el resultado: {fresh['total_cells']} celdas "
                                    f"(antes {json.loads(o['sim'])['total_cells']}). Se usa la simulación nueva.")
+        con.commit()          # no dejar una transacción abierta durante toda la ejecución: bloquearía a los demás usuarios
     done, failed, changes_n, unchanged = [], [], 0, []
     qty = params.get("qty") or {"on": False}
     factor = qty["factor"] if qty["on"] else None
@@ -497,6 +637,11 @@ def _execute(con, oid, approver):
 def revert(user, oid):
     require(user, "revert")
     _writable()
+    with _FILES_LOCK:              # el estado se lee adentro: dos «revertir» a la vez no pueden pisarse
+        return _revert(user, oid)
+
+
+def _revert(user, oid):
     con = connect()
     try:
         o = _order(con, oid)
@@ -535,7 +680,8 @@ def run_cleanup(user, dry_run=False):
     require(user, "cleanup")
     if not dry_run:
         _writable()
-    moved = engine.cleanup_folders(settings.docs_root, dry_run=dry_run)
+    with _FILES_LOCK:
+        moved = engine.cleanup_folders(settings.docs_root, dry_run=dry_run)
     if not dry_run:
         con = connect()
         try:
@@ -628,9 +774,9 @@ def code_exists(code):
 
 def _approve_reemplazos(con, o, user, comment):
     p = json.loads(o["params"])
+    _claim(con, o["id"], "completado", decided_by=user["email"], decided_at=now())
     added = _add_alts(con, p["code"], p["alts"], o["created_by"])
-    con.execute("UPDATE orders SET status='completado', result=?, decided_by=?, decided_at=? WHERE id=?",
-                (json.dumps({"added": added}), user["email"], now(), o["id"]))
+    con.execute("UPDATE orders SET result=? WHERE id=?", (json.dumps({"added": added}), o["id"]))
     event(con, o["id"], user["email"], "Aprobó el pedido." + (f" Comentario: {comment}" if comment else ""))
     event(con, o["id"], "sistema", f"Listo: {len(added)} reemplazos posibles agregados a {p['code']}.")
     audit(con, user["email"], "Aprobó pedido de reemplazos", f"#{o['id']}", f"{p['code']}: {', '.join(added)}")
@@ -799,7 +945,8 @@ def links_repair(user, dry_run=True):
     if not dry_run:
         _writable()
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    res = engine.repair_links(settings.docs_root, settings.backup_dir / f"accesos_{stamp}", dry_run=dry_run)
+    with _FILES_LOCK:             # no a la vez que un pedido que también actualiza accesos directos
+        res = engine.repair_links(settings.docs_root, settings.backup_dir / f"accesos_{stamp}", dry_run=dry_run)
     if not dry_run and (res["fixed"] or res["failed"]):
         con = connect()
         try:

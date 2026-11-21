@@ -3,7 +3,7 @@ FastAPI (main.py) y el servidor de prueba usan esta misma tabla."""
 import re
 import traceback
 
-from . import engine, events, services
+from . import assistant, engine, events, magnus, services
 from .config import settings
 from .permissions import PERMS, PermissionDenied, require
 from .security import make_token, read_token
@@ -19,7 +19,10 @@ def _perms(u):
 
 
 def _login(u, m, q, b):
-    user = services.authenticate(b.get("email", ""), b.get("password", ""))
+    try:
+        user = services.authenticate(b.get("email", ""), b.get("password", ""))
+    except services.LoginLocked as e:
+        raise HttpError(429, str(e))
     if not user:
         raise HttpError(401, "Correo o clave incorrectos.")
     return {"token": make_token(user["email"]), "user": user, "perms": _perms(user), "read_only": settings.read_only}
@@ -33,6 +36,8 @@ def _health(u, m, q, b):
 
 
 PUBLIC = {("POST", "/api/login")}
+# Con la clave inicial o restablecida solo se puede ver quien es y cambiarla; todo lo demas se habilita al cambiarla.
+SOLO_CAMBIAR_CLAVE = {("GET", "/api/me"), ("POST", "/api/me/password")}
 
 ROUTES = [
     ("POST", r"/api/login", _login),
@@ -40,6 +45,7 @@ ROUTES = [
     ("POST", r"/api/me/password", lambda u, m, q, b: services.change_password(u, b.get("current", ""), b.get("new", ""))),
     ("GET", r"/api/health", _health),
     ("POST", r"/api/events/test", lambda u, m, q, b: (require(u, "admin"), events.send_test(u["email"]))[1]),
+    ("POST", r"/api/assistant", lambda u, m, q, b: assistant.handle(u, b)),
     ("GET", r"/api/people", lambda u, m, q, b: services.people(u)),
     ("GET", r"/api/codes", lambda u, m, q, b: services.catalog_list(u, q.get("q", ""))),
     ("POST", r"/api/codes", lambda u, m, q, b: services.generate_code(u, b.get("code"), b.get("desc"), b.get("kind", ""), b.get("alts"), b.get("request_id"))),
@@ -63,10 +69,15 @@ ROUTES = [
     ("POST", r"/api/cleanup", lambda u, m, q, b: services.run_cleanup(u, bool(b.get("dry_run", True)))),
     ("GET", r"/api/links", lambda u, m, q, b: services.links_report(u)),
     ("POST", r"/api/links/repair", lambda u, m, q, b: services.links_repair(u, bool(b.get("dry_run", True)))),
+    ("GET", r"/api/magnus", lambda u, m, q, b: magnus.estado(u)),
+    ("POST", r"/api/magnus/run", lambda u, m, q, b: magnus.ejecutar(u)),
+    ("GET", r"/api/magnus/informe", lambda u, m, q, b: magnus.informe(u, q.get("name", ""))),
     ("GET", r"/api/changes", lambda u, m, q, b: services.changes_log(u, q.get("q", ""))),
     ("GET", r"/api/audit", lambda u, m, q, b: services.list_audit(u)),
     ("GET", r"/api/users", lambda u, m, q, b: services.list_users(u)),
-    ("POST", r"/api/users", lambda u, m, q, b: services.create_user(u, b.get("email", ""), b.get("name", ""), b.get("role", ""), b.get("password", "")) or {"ok": True}),
+    ("POST", r"/api/users", lambda u, m, q, b: services.create_user(u, b.get("email", ""), b.get("name", ""), b.get("role", ""), b.get("password", ""), bool(b.get("force_change")))),
+    ("POST", r"/api/users/([^/]+)/reset", lambda u, m, q, b: services.reset_password(u, m[0], b.get("password", ""), bool(b.get("force_change")))),
+    ("DELETE", r"/api/users/([^/]+)", lambda u, m, q, b: services.delete_user(u, m[0])),
     ("PATCH", r"/api/users/([^/]+)", lambda u, m, q, b: services.set_role(u, m[0], b.get("role"), b.get("active")) or {"ok": True}),
 ]
 _COMPILED = [(meth, re.compile("^" + pat + "$"), fn) for meth, pat, fn in ROUTES]
@@ -96,6 +107,8 @@ def dispatch(method, path, query=None, body=None, token=None):
             user = services.get_user(email) if email else None
             if not user:
                 raise HttpError(401, "Ingresá de nuevo.")
+            if user.get("must_change") and (method, path) not in SOLO_CAMBIAR_CLAVE:
+                raise HttpError(403, "Tenés que cambiar tu clave antes de seguir.")
         return 200, fn(user, groups, query, body)
     except HttpError as e:
         return e.status, {"detail": e.detail}

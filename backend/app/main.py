@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import engine, services
+from .cabeceras import CabecerasSeguras
 from .config import settings
 from .db import init_db
 from .router import dispatch
@@ -33,6 +34,9 @@ def _calentar():
 @asynccontextmanager
 async def lifespan(app):
     init_db()
+    settings.secret_key                                  # la crea ahora si hace falta (y no en el primer ingreso)
+    if settings.secret_key_origin == "archivo":
+        print(f"[portal] SECRET_KEY no esta en .env: se usa la clave propia guardada en {settings.data_dir / 'secret.key'}", flush=True)
     try:
         for oid in services.recover_interrupted():
             print(f"[portal] el pedido #{oid} había quedado a medias y se recuperó", flush=True)
@@ -43,6 +47,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Portal de documentación SERVELEC", version="0.2", lifespan=lifespan)
+app.add_middleware(CabecerasSeguras)
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PATCH", "DELETE"])
@@ -52,6 +57,8 @@ async def api(rest: str, request: Request):
         try:
             body = await request.json()
         except Exception:
+            body = {}
+        if not isinstance(body, dict):                   # un cuerpo que no es un objeto JSON se ignora (no debe romper nada)
             body = {}
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else None

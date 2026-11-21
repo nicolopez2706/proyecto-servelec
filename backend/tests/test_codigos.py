@@ -55,3 +55,4 @@ def test_la_busqueda_del_codigo_no_cambia(docs):
     """El filtro solo afecta la lista de codigos: buscar y simular siguen encontrando cualquier celda igual al codigo."""
     _libro(docs / "D" / "Z_L1V1R0_01-01-25.xlsx", {"Hoja1": [["Código"], ["K1"]]})
     assert engine.simulate(docs, "K1")["total_cells"] == 1
+

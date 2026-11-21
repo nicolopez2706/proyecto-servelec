@@ -17,8 +17,8 @@ PERMS = {
     "revs": ["Ingeniería", "Gerencia", "Sistemas"],
     "cleanup": ["Ingeniería", "Sistemas"],
     "cleanup_view": ["Ingeniería", "Sistemas", SERVICE_ROLE],        # solo mirar que habria para limpiar (n8n lo usa cada semana)
-    "magnus": ROLES,
-    "magnus_run": ["Ingeniería", "Sistemas"],
+    "magnus": ROLES + [SERVICE_ROLE],
+    "magnus_run": ["Ingeniería", "Sistemas", SERVICE_ROLE],      # n8n lo ejecuta cada semana
     "magnus_alta": ["Abastecimiento", "Ingeniería", "Sistemas"],
     "audit": ["Gerencia", "Sistemas"],
     "links": ["Ingeniería", "Gerencia", "Sistemas"],    # ver el estado de los accesos directos

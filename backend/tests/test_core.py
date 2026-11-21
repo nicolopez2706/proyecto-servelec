@@ -162,3 +162,43 @@ def test_limpieza_obsoletos(env):
     services.run_cleanup(u["ing@x"])
     assert sorted(p.name for p in d.glob("*.xlsx")) == ["MDA300_L1V1R2_10-10-24.xlsx"]
     assert len(list((d / "OBSOLETO").glob("*.xlsx"))) == 2
+
+
+def test_dos_aprobaciones_a_la_vez_ejecutan_una_sola_vez(env):
+    """Dos personas que aprueban el mismo pedido en el mismo instante: solo una lo ejecuta."""
+    import threading
+    services, u, docs, _ = env
+    o = pedir(services, u)
+    res = []
+
+    def ir(email):
+        try:
+            res.append(("ok", services.approve(u[email], o["id"])["status"]))
+        except Exception as e:
+            res.append(("error", str(e)))
+
+    hilos = [threading.Thread(target=ir, args=(e,)) for e in ("ger@x", "ger@x", "ger@x")]
+    [h.start() for h in hilos]
+    [h.join() for h in hilos]
+    assert sum(1 for k, _ in res if k == "ok") == 1, res
+    assert all("ya no está esperando" in m for k, m in res if k == "error"), res
+    con = services.connect()
+    n = con.execute("SELECT COUNT(*) c FROM events WHERE order_id=? AND text LIKE 'Aprobó el pedido%'", (o["id"],)).fetchone()["c"]
+    con.close()
+    assert n == 1
+
+
+def test_claim_solo_deja_pasar_a_uno(env):
+    """Aunque dos personas hayan leído «pendiente» antes de decidir, el segundo cambio de estado se rechaza."""
+    import pytest
+    services, u, docs, _ = env
+    o = pedir(services, u)
+    con = services.connect()
+    try:
+        services._claim(con, o["id"], "ejecutando", decided_by="a@x", decided_at="ahora")
+        con.commit()
+        with pytest.raises(ValueError, match="ya no está esperando"):
+            services._claim(con, o["id"], "ejecutando", decided_by="b@x", decided_at="ahora")
+        assert con.execute("SELECT decided_by FROM orders WHERE id=?", (o["id"],)).fetchone()["decided_by"] == "a@x"
+    finally:
+        con.close()
