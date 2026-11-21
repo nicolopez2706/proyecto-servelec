@@ -117,14 +117,14 @@ def test_cantidades(env):
 
 def test_revertir(env):
     services, u, docs, _ = env
-    antes = {str(p.relative_to(docs)): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
+    antes = {p.relative_to(docs).as_posix(): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
     o = pedir(services, u)
     services.approve(u["ger@x"], o["id"])
     from app.permissions import PermissionDenied
     with pytest.raises(PermissionDenied): services.revert(u["ing@x"], o["id"])
     r = services.revert(u["ger@x"], o["id"])
     assert r["status"] == "revertido"
-    despues = {str(p.relative_to(docs)): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
+    despues = {p.relative_to(docs).as_posix(): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
     assert despues == antes                                   # idéntico, sin OBSOLETO ni archivos nuevos
 
 

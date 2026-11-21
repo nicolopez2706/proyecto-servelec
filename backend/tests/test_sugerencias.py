@@ -67,7 +67,7 @@ def env(tmp_path, monkeypatch):
 
 
 def _tree(docs):
-    return {str(p.relative_to(docs)): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
+    return {p.relative_to(docs).as_posix(): p.read_bytes() for p in docs.rglob("*") if p.is_file()}
 
 
 def test_reemplazos_en_planillas_con_reversion(env):
