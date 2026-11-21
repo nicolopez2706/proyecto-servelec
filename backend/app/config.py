@@ -108,6 +108,12 @@ class Settings:
         return os.getenv("IGNORE_LOCKS", "").strip().lower() in ("1", "true", "si", "sí", "on")
 
     @property
+    def allow_content_loss(self):
+        """PERMITIR_PERDIDA_XLSX=1: guardar un .xlsx aunque se pierdan imagenes, formas, graficos o tablas dinamicas que
+        la libreria no sabe conservar. Apagado por defecto: ese archivo queda sin tocar y se avisa en el pedido."""
+        return os.getenv("PERMITIR_PERDIDA_XLSX", "").strip().lower() in ("1", "true", "si", "sí", "on")
+
+    @property
     def scan_ttl(self):
         """SCAN_TTL=segundos  Cuanto se reusa el recorrido de las carpetas en buscar y en el catalogo (por defecto 30).
         0 = recorrer en cada consulta. Los cambios y las simulaciones siempre recorren de nuevo."""

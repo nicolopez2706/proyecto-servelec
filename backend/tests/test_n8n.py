@@ -30,11 +30,13 @@ def n8n(monkeypatch):
     monkeypatch.setenv("N8N_DELAY", "0")
     yield got
     srv.shutdown()
+    srv.server_close()
 
 
-def _esperar(got, n, seg=5):
+def _esperar(got, n, seg=5, eventos=()):
+    """Espera n avisos y, si se indican, hasta que hayan llegado esos eventos (llegan en segundo plano, sin orden fijo)."""
     t = time.time()
-    while len(got) < n and time.time() - t < seg:
+    while time.time() - t < seg and (len(got) < n or not set(eventos) <= {g["body"]["event"] for g in list(got)}):
         time.sleep(0.05)
 
 
@@ -49,7 +51,7 @@ def test_los_pedidos_avisan_a_n8n_con_resumen(env, n8n):
     services, u, docs, _ = env
     o = pedir(services, u)
     services.approve(u["ger@x"], o["id"])
-    _esperar(n8n, 3)
+    _esperar(n8n, 3, eventos=("pedido_creado", "pedido_aprobado", "pedido_ejecutado"))
     por_evento = {g["body"]["event"]: g for g in n8n}
     assert {"pedido_creado", "pedido_aprobado", "pedido_ejecutado"} <= set(por_evento)
     c = por_evento["pedido_creado"]

@@ -12,6 +12,7 @@ import functools
 import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 from copy import copy
@@ -185,6 +186,45 @@ class XlsxDoc:
 
     def save(self, dest):
         self.wb.save(dest)
+
+
+# ---------------------------------------------------------------- que no se pierda contenido al guardar un .xlsx
+# openpyxl vuelve a escribir el archivo entero y no conoce todo lo que Excel puede guardar: formas y cuadros de texto,
+# tablas dinamicas, segmentaciones; y sin Pillow tampoco conserva imagenes. Antes de reemplazar nada se compara
+# lo que tenia el original con lo que quedo en el archivo nuevo; si falta algo, ese archivo no se toca.
+_PARTES = (("imágenes", r"^xl/media/"), ("gráficos", r"^xl/charts/chart\d*\.xml$"),
+           ("tablas dinámicas", r"^xl/pivotTables/pivotTable\d*\.xml$"), ("segmentaciones", r"^xl/slicers/"),
+           ("controles de formulario", r"^xl/ctrlProps/"), ("objetos incrustados", r"^xl/embeddings/"))
+_OBJ_RE = re.compile(rb"<(?:\w+:)?(sp|pic|graphicFrame|cxnSp|grpSp)[ >/]")
+
+
+def _contenido_xlsx(path):
+    """{tipo de contenido: cantidad} de lo que openpyxl podria perder."""
+    out = {}
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        for etiqueta, pat in _PARTES:
+            n = sum(1 for x in names if re.search(pat, x))
+            if n:
+                out[etiqueta] = n
+        formas = 0
+        for x in names:
+            if re.match(r"^xl/drawings/drawing\d*\.xml$", x):
+                formas += len(_OBJ_RE.findall(z.read(x)))
+        if formas:
+            out["dibujos y formas"] = formas
+    return out
+
+
+def check_no_loss(original, nuevo):
+    """Falla si el archivo guardado perdio algo de lo que tenia el original."""
+    if settings.allow_content_loss:
+        return
+    antes, despues = _contenido_xlsx(original), _contenido_xlsx(nuevo)
+    perdido = [f"{k} ({v} → {despues.get(k, 0)})" for k, v in antes.items() if despues.get(k, 0) < v]
+    if perdido:
+        raise ValueError("no se modificó porque se perdería contenido que el portal no sabe conservar: " + ", ".join(perdido)
+                         + ". Cambialo a mano en esa planilla.")
 
 
 def open_doc(path):
@@ -976,6 +1016,12 @@ def revise_and_save(path, doc, mode, entry, today=None):
     doc.write_control(dict(entry, rev=info["tag"] if info else "—"))
     tmp = folder / (".tmp_" + newname)
     doc.save(tmp)
+    if getattr(doc, "kind", "") == "xlsx" and path.suffix.lower() in XLSX_EXTS:
+        try:
+            check_no_loss(path, tmp)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
     obs_path, obs_prev, moved = None, False, False
     try:
         if mode == "rev":

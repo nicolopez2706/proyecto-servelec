@@ -79,6 +79,9 @@ def _payload(item):
     return p
 
 
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _post(payload):
     """Un envio. Devuelve (ok, estado_http_o_None, texto_de_error)."""
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -87,7 +90,8 @@ def _post(payload):
     if settings.n8n_secret:
         req.add_header("X-Portal-Token", settings.n8n_secret)
     try:
-        with urllib.request.urlopen(req, timeout=8) as r:
+        # sin proxy: n8n corre en la misma red/equipo; un proxy de Windows configurado para internet lo rompería
+        with _OPENER.open(req, timeout=8) as r:
             return 200 <= r.status < 300, r.status, ""
     except urllib.error.HTTPError as e:
         return False, e.code, f"n8n respondió {e.code}" + (" (¿el flujo está activo? en modo de prueba solo recibe mientras se escucha)" if e.code == 404 else "")
