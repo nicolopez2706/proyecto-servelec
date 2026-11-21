@@ -9,7 +9,12 @@ $back = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "backe
 Set-Location $back
 $pyvenv = Join-Path $back ".venv\Scripts\python.exe"
 $direccion = if ($SoloEstaPC) { "127.0.0.1" } else { "0.0.0.0" }
-$log = Join-Path $back "data\portal.log"
-New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-"[{0}] Prendiendo el portal en {1}:{2}" -f (Get-Date), $direccion, $Puerto | Add-Content $log
-& $pyvenv -m uvicorn app.main:app --host $direccion --port $Puerto 2>&1 | Tee-Object -FilePath $log -Append
+$salida = Join-Path $back "data\portal.log"
+$errores = Join-Path $back "data\portal_errores.log"
+New-Item -ItemType Directory -Force (Split-Path $salida) | Out-Null
+# uvicorn escribe sus avisos por la salida de errores. Start-Process con redirección a archivos evita que Windows PowerShell 5.1
+# los tome como errores del script (con 2>&1 lo cortaría). El código de salida se devuelve para que la tarea programada
+# lo reinicie si el portal se cae. Los registros se vuelven a empezar en cada arranque.
+$p = Start-Process -FilePath $pyvenv -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", $direccion, "--port", $Puerto) `
+    -WorkingDirectory $back -RedirectStandardOutput $salida -RedirectStandardError $errores -NoNewWindow -Wait -PassThru
+exit $p.ExitCode

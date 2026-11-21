@@ -91,7 +91,7 @@ def restaurar(carpeta):
         if destino.exists():
             shutil.copy2(destino, destino.with_name(destino.name + f".antes_{sello}"))
         shutil.copy2(origen, destino)
-        for extra in ("-wal", "-shm"):                      # restos de la base anterior que ya no corresponden
+        for extra in ("-wal", "-shm", "-journal"):                      # restos de la base anterior que ya no corresponden
             Path(str(destino) + extra).unlink(missing_ok=True)
         vueltos.append(destino.name)
     return vueltos

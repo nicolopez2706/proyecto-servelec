@@ -19,7 +19,8 @@ PATRONES = [
     ("token JWT (empieza con eyJ)", re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")),
     ("clave privada", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("clave de Google/AWS", re.compile(r"\b(AIza[0-9A-Za-z_-]{30,}|AKIA[0-9A-Z]{16})\b")),
-    ("clave puesta a mano", re.compile(r"""(?ix)\b(SECRET_KEY|N8N_WEBHOOK_SECRET|ESPERADO|PASSWORD|TOKEN|API_?KEY)\b\s*[=:]\s*(['"]?)([^\s'"#]{8,})""")),
+    ("clave puesta a mano", re.compile(r"""(?ix)\w*(SECRET|ESPERADO|PASSWORD|PASSWD|TOKEN|API_?KEY)\w*["']?\s*[=:]\s*(['"]?)([^\s'"#,}]{8,})""")),
+    ("encabezado con clave (JSON de n8n)", re.compile(r"""(?i)"name"\s*:\s*"(?:authorization|x-[\w-]*(?:token|key|secret)[\w-]*)"\s*,\s*"value"\s*:\s*"([^"]{8,})\"""")),
 ]
 
 
@@ -38,7 +39,8 @@ def revisar(lista=None, raiz=RAIZ):
     problemas = []
     for p in lista if lista is not None else archivos():
         rel = p.relative_to(raiz).as_posix()
-        if p.name in NOMBRES_PROHIBIDOS or p.suffix.lower() in EXT_PROHIBIDAS:
+        if p.name in NOMBRES_PROHIBIDOS or p.suffix.lower() in EXT_PROHIBIDAS or ".antes_" in p.name \
+                or (p.name.startswith(".env") and p.name != ".env.example"):
             problemas.append((rel, 0, "archivo que nunca debe subirse"))
             continue
         if p.suffix.lower() in (".png", ".jpg", ".ico", ".xlsx", ".xls", ".ods", ".zip", ".lnk") or not p.is_file():

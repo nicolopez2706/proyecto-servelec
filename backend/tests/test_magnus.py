@@ -21,6 +21,10 @@ def _export_xlsx(path, filas, cabecera=("Código", "Descripción", "Unidad")):
     ws.append(list(cabecera))
     for f in filas:
         ws.append(list(f))
+    for fila in ws.iter_rows():
+        for c in fila:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                c.data_type = "s"                      # texto que empieza con «=», no una fórmula
     wb.save(path)
     return path
 
@@ -114,3 +118,45 @@ def test_el_servicio_de_n8n_puede_ejecutarlo(con_magnus):
     services, u, docs, data, f = con_magnus
     svc = {"email": "n8n@x", "name": "Automatización", "role": SERVICE_ROLE}
     assert magnus.ejecutar(svc)["en_magnus"] == 3
+
+
+def test_dimension_mal_declarada_no_trunca_la_lectura(env, tmp_path, monkeypatch):  # noqa: F811
+    import re
+    import zipfile
+    f = _export_xlsx(tmp_path / "m.xlsx", [(f"C{i}", f"desc {i}", "UN") for i in range(10)])
+    out = tmp_path / "m2.xlsx"
+    with zipfile.ZipFile(f) as zin, zipfile.ZipFile(out, "w") as zout:
+        for n in zin.namelist():
+            d = zin.read(n)
+            if n == "xl/worksheets/sheet1.xml":
+                d = re.sub(rb'<dimension ref="[^"]*"', b'<dimension ref="A1:B3"', d)
+            zout.writestr(n, d)
+    assert len(magnus.leer_export(out)) == 10
+
+
+def test_csv_con_comas_dentro_del_texto_y_codificacion_rara(env, tmp_path):  # noqa: F811
+    f = tmp_path / "a.csv"
+    f.write_text('Código;Descripción\nA1;"TORNILLO, M8, INOX, ZINCADO"\nA2;3,5 mm, doble\n', encoding="utf-8")
+    assert list(magnus.leer_export(f)) == ["A1", "A2"]
+    g = tmp_path / "b.csv"
+    g.write_bytes(b"C\x81digo;Descripci\xf3n\nZ9;ok\n")           # no es utf-8 ni cp1252 válido en todo: no debe romper
+    try:
+        magnus.leer_export(g)
+    except magnus.MagnusError:
+        pass                                                       # mensaje claro para el usuario; lo que no puede pasar es un error interno
+
+
+def test_codigos_numericos_como_decimal_y_formulas_en_el_informe(env, tmp_path, monkeypatch):  # noqa: F811
+    services, u, docs, data = env
+    f = _export_xlsx(tmp_path / "n.xlsx", [(1234.0, "= 5 mm x 3", "UN"), ("=HYPERLINK(\"http://x\")", "malo", "UN")])
+    assert magnus.leer_export(f)["1234"] == "= 5 mm x 3"
+    monkeypatch.setenv("MAGNUS_EXPORT", str(f))
+    r = magnus.ejecutar(u["ing@x"])
+    wb = load_workbook(data / "magnus" / r["informe"])
+    for row in wb["Solo en Magnus"].iter_rows(min_row=2):
+        assert all(c.data_type == "s" for c in row if isinstance(c.value, str))
+
+
+def test_enlace_de_informes_anteriores_no_navega():
+    html = (Path(__file__).resolve().parent.parent / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "<a href=\"#\" data-act=\"magnusdl\"" not in html

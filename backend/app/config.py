@@ -36,16 +36,22 @@ def _clave_en_archivo(ruta: Path) -> str:
     if len(k) < 32:
         ruta.parent.mkdir(parents=True, exist_ok=True)
         nueva = secrets.token_urlsafe(48)
-        try:
-            with open(ruta, "x", encoding="utf-8") as f:        # "x": si otro proceso la creo justo antes, no la pisa
-                f.write(nueva)
+        if ruta.exists():                                         # archivo vacío o cortado: se reemplaza (de a poco, sin dejarlo a medias)
+            tmp = ruta.with_suffix(".tmp")
+            tmp.write_text(nueva, encoding="utf-8")
+            os.replace(tmp, ruta)
             k = nueva
+        else:
             try:
-                os.chmod(ruta, 0o600)
-            except OSError:
-                pass
-        except FileExistsError:
-            k = ruta.read_text(encoding="utf-8").strip()
+                with open(ruta, "x", encoding="utf-8") as f:      # "x": si otro proceso la creo justo antes, no la pisa
+                    f.write(nueva)
+                k = nueva
+            except FileExistsError:
+                k = ruta.read_text(encoding="utf-8").strip()
+        try:
+            os.chmod(ruta, 0o600)
+        except OSError:
+            pass
     _clave_auto[ruta] = k
     return k
 
@@ -58,7 +64,7 @@ class Settings:
         """SECRET_KEY firma las sesiones. Si no esta en .env (o es uno de los valores de ejemplo), el portal genera una
         clave aleatoria propia y la guarda en DATA_DIR\\secret.key: nunca se usa una clave conocida."""
         k = os.getenv("SECRET_KEY", "").strip()
-        if k and k not in _CLAVES_PUBLICAS:
+        if k and k not in _CLAVES_PUBLICAS and len(k) >= 16:      # una clave de .env demasiado corta se falsifica fácil: no se usa
             return k
         return _clave_en_archivo(self.data_dir / "secret.key")
 
@@ -66,7 +72,7 @@ class Settings:
     def secret_key_origin(self):
         """'env' si viene de .env, 'archivo' si la genero el portal."""
         k = os.getenv("SECRET_KEY", "").strip()
-        return "env" if k and k not in _CLAVES_PUBLICAS else "archivo"
+        return "env" if k and k not in _CLAVES_PUBLICAS and len(k) >= 16 else "archivo"
 
     @property
     def login_max_fails(self):

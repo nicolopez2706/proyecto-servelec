@@ -413,7 +413,7 @@ V.magnus = async () => {
     h += `<div class="tiles">${tile(u.faltan, 'faltan en Magnus', 'alert', u.faltan ? 't-am' : 't-gr')}${tile(u.distinta, 'con descripción distinta', 'swap', u.distinta ? 't-am' : 't-gr')}${tile(u.solo_magnus, 'solo en Magnus', 'tag', 't-in')}${tile(u.en_magnus, 'códigos en Magnus', 'check-circle', 't-tl')}</div>`;
     h += `<div class="panel">${h2i('clipboard', 'Último control')}<p class="small muted">${esc(u.fecha)} · archivo <span class="mono">${esc(u.archivo)}</span> · pedido por ${esc(u.por)}</p>${u.primeros_faltantes && u.primeros_faltantes.length ? `<p class="small"><b>Primeros que faltan:</b> ${u.primeros_faltantes.map(esc).join(', ')}</p>` : '<p class="small">No falta ningún código en Magnus.</p>'}<p><button class="btn" data-act="magnusdl" data-name="${esc(u.informe)}">${ic('arrow-right')} Descargar el informe completo (Excel)</button></p></div>`;
   }
-  if (r.informes.length > 1) h += `<div class="panel">${h2i('clock', 'Informes anteriores')}<ul class="small">${r.informes.slice(1).map((n) => `<li><a href="#" data-act="magnusdl" data-name="${esc(n)}">${esc(n)}</a></li>`).join('')}</ul></div>`;
+  if (r.informes.length > 1) h += `<div class="panel">${h2i('clock', 'Informes anteriores')}<ul class="small">${r.informes.slice(1).map((n) => `<li><button type="button" class="btn sm" data-act="magnusdl" data-name="${esc(n)}">${ic('arrow-right')} ${esc(n)}</button></li>`).join('')}</ul></div>`;
   return h;
 };
 

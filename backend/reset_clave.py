@@ -18,8 +18,11 @@ def restablecer(email):
     nueva = clave_temporal()
     con = connect()
     try:
-        if not con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+        u = con.execute("SELECT role FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
             raise SystemExit(f"No existe el usuario {email}. Usuarios cargados: python seed.py --solo-correos")
+        if u["role"] == "Automatización":
+            raise SystemExit("Ese es el usuario de n8n: no tiene clave de ingreso (usa el token de servicio_n8n.py).")
         con.execute("UPDATE users SET pw_hash=?, must_change=1 WHERE email=?", (hash_password(nueva), email))
         con.execute("DELETE FROM login_fail WHERE email=?", (email,))
         con.execute("INSERT INTO audit(at,by,action,target,detail) VALUES(?,?,?,?,?)",

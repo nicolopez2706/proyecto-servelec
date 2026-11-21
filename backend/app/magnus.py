@@ -50,22 +50,37 @@ def archivo_export():
 
 def _filas_csv(path):
     raw = path.read_bytes()
+    texto = None
     for enc in ("utf-8-sig", "cp1252"):
         try:
             texto = raw.decode(enc)
             break
         except UnicodeDecodeError:
             continue
-    muestra = texto[:4096]
-    delim = max(";,\t|", key=muestra.count)
-    return [[c.strip() for c in fila] for fila in csv.reader(texto.splitlines(), delimiter=delim)]
+    if texto is None:
+        texto = raw.decode("latin-1")                       # nunca falla: peor caso, algún acento sale mal
+    lineas = texto.splitlines()
+    # el separador se decide por la primera línea con contenido (los encabezados no llevan comas dentro del texto)
+    cabecera = next((l for l in lineas if l.strip()), "")
+    delim = max(";\t|,", key=cabecera.count)
+    return [[c.strip() for c in fila] for fila in csv.reader(lineas, delimiter=delim)]
+
+
+def _texto(c):
+    """Celda como texto. Un número entero guardado como decimal (1234.0) vuelve a ser «1234»."""
+    if c is None:
+        return ""
+    if isinstance(c, float) and c.is_integer():
+        return str(int(c))
+    return str(c).strip()
 
 
 def _filas_xlsx(path):
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb.worksheets[0]
-        return [["" if c is None else str(c).strip() for c in fila] for fila in ws.iter_rows(values_only=True)]
+        ws.reset_dimensions()                              # algunos exportadores declaran mal el tamaño de la hoja y se leería de menos
+        return [[_texto(c) for c in fila] for fila in ws.iter_rows(values_only=True)]
     finally:
         wb.close()
 
@@ -189,6 +204,10 @@ def _hoja(wb, titulo, cols, filas, ancho):
         c.fill = PatternFill("solid", fgColor="1E3A5F")
     for f in filas:
         ws.append(f)
+    for fila in ws.iter_rows(min_row=2):                    # un texto que empieza con «=» no debe tomarse como fórmula
+        for c in fila:
+            if isinstance(c.value, str) and c.value[:1] in ("=", "+", "-", "@"):
+                c.data_type = "s"
     for i, w in enumerate(ancho, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"

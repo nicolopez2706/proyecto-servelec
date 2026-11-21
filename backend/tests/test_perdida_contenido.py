@@ -85,3 +85,28 @@ def test_sin_contenido_especial_no_molesta(tmp_path):
     p = _xlsx(tmp_path / "d_L1V1R0.xlsx")
     assert engine._contenido_xlsx(p) == {}
     assert Path(_cambiar(p)["new"]).exists()
+
+
+def _con_minigrafico(path):
+    """Agrega un grupo de minigráficos (extensión x14), que openpyxl descarta al guardar."""
+    ext = (b'<extLst><ext uri="{05C60535-1F16-4fd2-B633-F4F36F0B64E0}" '
+           b'xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">'
+           b'<x14:sparklineGroups xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"><x14:sparklineGroup>'
+           b'<x14:sparklines><x14:sparkline><xm:f>Sheet!A2:B2</xm:f><xm:sqref>C2</xm:sqref></x14:sparkline></x14:sparklines>'
+           b'</x14:sparklineGroup></x14:sparklineGroups></ext></extLst>')
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w") as zout:
+        for n in zin.namelist():
+            d = zin.read(n)
+            if n == "xl/worksheets/sheet1.xml":
+                d = d.replace(b"</worksheet>", ext + b"</worksheet>")
+            zout.writestr(n, d)
+    shutil.move(tmp, path)
+
+
+def test_los_minigraficos_tambien_frenan_el_cambio(tmp_path):
+    p = _xlsx(tmp_path / "e_L1V1R0.xlsx")
+    _con_minigrafico(p)
+    with pytest.raises(ValueError, match="no se modificó"):
+        _cambiar(p)
+    assert p.exists() and not list(tmp_path.glob("*R1*")) and not list(tmp_path.glob(".tmp_*"))

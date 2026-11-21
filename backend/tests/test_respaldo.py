@@ -12,6 +12,10 @@ import respaldo  # noqa: E402
 
 def test_respaldo_y_restauracion(env, tmp_path, monkeypatch):  # noqa: F811
     services, u, docs, data = env
+    base = tmp_path / "backend"                                  # que el test nunca toque el .env real del proyecto
+    base.mkdir()
+    (base / ".env").write_text("DOCS_ROOT=x")
+    monkeypatch.setattr(respaldo, "BASE", base)
     (data / "secret.key").write_text("clave-secreta-de-prueba")
     n8n = tmp_path / "n8n"
     n8n.mkdir()
@@ -32,6 +36,7 @@ def test_respaldo_y_restauracion(env, tmp_path, monkeypatch):  # noqa: F811
     assert services.get_user("ing@x") is not None
     assert (data / "secret.key").read_text() == "clave-secreta-de-prueba"
     assert list(data.glob("secret.key.antes_*"))               # lo anterior no se pierde
+    assert list(base.glob(".env.antes_*"))
 
 
 def test_solo_quedan_los_ultimos(env, tmp_path):  # noqa: F811

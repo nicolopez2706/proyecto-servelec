@@ -10,7 +10,7 @@ from pathlib import Path
 from . import engine, events
 from .config import settings
 from .db import connect
-from .permissions import PermissionDenied, can, require, ROLES
+from .permissions import PermissionDenied, SERVICE_ROLE, can, require, ROLES
 from .security import check_password, hash_password
 
 OPEN = "pendiente"
@@ -80,6 +80,9 @@ def user_public(r):
             "must_change": bool(r["must_change"])}
 
 
+_LOGIN_LOCK = threading.Lock()
+
+
 def authenticate(email, password):
     """Devuelve el usuario si la clave es correcta, None si no. Tras LOGIN_MAX_FAILS intentos fallidos seguidos de un
     mismo correo, bloquea ese correo LOGIN_LOCK_MINUTES minutos (LoginLocked)."""
@@ -88,12 +91,15 @@ def authenticate(email, password):
     con = connect()
     try:
         corte = (dt.datetime.now() - dt.timedelta(minutes=settings.login_lock_minutes)).isoformat(timespec="seconds")
-        n, ultimo = tuple(con.execute("SELECT COUNT(*), MAX(at) FROM login_fail WHERE email=? AND at>=?", (email, corte)).fetchone())
-        if n >= settings.login_max_fails:
-            pasaron = (dt.datetime.now() - dt.datetime.fromisoformat(ultimo)).total_seconds()
-            faltan = max(1, math.ceil((settings.login_lock_minutes * 60 - pasaron) / 60))
-            raise LoginLocked(f"Demasiados intentos fallidos. Probá de nuevo en {faltan} {'minuto' if faltan == 1 else 'minutos'}, "
-                              "o pedile a Sistemas que restablezca tu clave.")
+        with _LOGIN_LOCK:       # contar e inscribir el intento en un solo paso: una ráfaga en paralelo no se salta el límite
+            n, ultimo = tuple(con.execute("SELECT COUNT(*), MAX(at) FROM login_fail WHERE email=? AND at>=?", (email, corte)).fetchone())
+            if n >= settings.login_max_fails:
+                pasaron = (dt.datetime.now() - dt.datetime.fromisoformat(ultimo)).total_seconds()
+                faltan = max(1, math.ceil((settings.login_lock_minutes * 60 - pasaron) / 60))
+                raise LoginLocked(f"Demasiados intentos fallidos. Probá de nuevo en {faltan} {'minuto' if faltan == 1 else 'minutos'}, "
+                                  "o pedile a Sistemas que restablezca tu clave.")
+            con.execute("INSERT INTO login_fail(email,at) VALUES(?,?)", (email, now()))     # se anota ya; si la clave es buena se borra
+            con.commit()
         r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email,)).fetchone()
         if r:
             ok = check_password(password, r["pw_hash"])
@@ -107,7 +113,6 @@ def authenticate(email, password):
             audit(con, r["email"], "Ingresó")
             con.commit()
             return user_public(r)
-        con.execute("INSERT INTO login_fail(email,at) VALUES(?,?)", (email, now()))
         con.execute("DELETE FROM login_fail WHERE at<?", ((dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds"),))
         if n + 1 >= settings.login_max_fails:
             audit(con, email, "Ingreso bloqueado por intentos fallidos", email, f"{settings.login_max_fails} intentos seguidos")
@@ -185,8 +190,11 @@ def reset_password(actor, email, new=""):
         _validar_clave(new, email)
     con = connect()
     try:
-        if not con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+        u = con.execute("SELECT role FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
             raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:         # a ese usuario se le pondría must_change y n8n quedaría bloqueado
+            raise ValueError("El usuario de automatización no tiene clave de ingreso: su acceso es el token de servicio_n8n.py.")
         con.execute("UPDATE users SET pw_hash=?, must_change=1 WHERE email=?", (hash_password(new), email))
         con.execute("DELETE FROM login_fail WHERE email=?", (email,))
         audit(con, actor["email"], "Restableció la clave de", email)          # la clave nunca se guarda en la auditoria
@@ -209,6 +217,15 @@ def set_role(actor, email, role=None, active=None):
     require(actor, "admin")
     con = connect()
     try:
+        u = con.execute("SELECT role, active FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
+            raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:
+            raise ValueError("El usuario de automatización no se administra desde acá (python servicio_n8n.py).")
+        quedaria_sin_admin = (role is not None and role != "Sistemas") or active is False
+        if u["role"] == "Sistemas" and u["active"] and quedaria_sin_admin and not con.execute(
+                "SELECT 1 FROM users WHERE role='Sistemas' AND active=1 AND email<>?", (email,)).fetchone():
+            raise ValueError("Tiene que quedar al menos un usuario de Sistemas activo.")
         if role is not None:
             if role not in ROLES:
                 raise ValueError("Rol inválido.")
@@ -514,6 +531,7 @@ def _execute(con, oid, approver):
     if fresh["total_cells"] != json.loads(o["sim"])["total_cells"]:
         event(con, oid, "sistema", f"Se volvió a simular y cambió el resultado: {fresh['total_cells']} celdas "
                                    f"(antes {json.loads(o['sim'])['total_cells']}). Se usa la simulación nueva.")
+        con.commit()          # no dejar una transacción abierta durante toda la ejecución: bloquearía a los demás usuarios
     done, failed, changes_n, unchanged = [], [], 0, []
     qty = params.get("qty") or {"on": False}
     factor = qty["factor"] if qty["on"] else None
@@ -900,7 +918,8 @@ def links_repair(user, dry_run=True):
     if not dry_run:
         _writable()
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    res = engine.repair_links(settings.docs_root, settings.backup_dir / f"accesos_{stamp}", dry_run=dry_run)
+    with _FILES_LOCK:             # no a la vez que un pedido que también actualiza accesos directos
+        res = engine.repair_links(settings.docs_root, settings.backup_dir / f"accesos_{stamp}", dry_run=dry_run)
     if not dry_run and (res["fixed"] or res["failed"]):
         con = connect()
         try:

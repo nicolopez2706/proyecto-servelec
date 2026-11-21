@@ -21,6 +21,8 @@ if ($Quitar) {
     Write-Host "Tareas eliminadas."; return
 }
 if ($Cuenta -eq "") { throw "Falta -Cuenta (la cuenta con la que corre el portal, por ejemplo SERVELEC\svc_portal)." }
+$DestinoRespaldo = $DestinoRespaldo.TrimEnd('\')      # una barra final rompería las comillas del comando
+$N8n = $N8n.TrimEnd('\')
 $raiz = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $back = Join-Path $raiz "backend"
 $cred = Get-Credential -UserName $Cuenta -Message "Clave de la cuenta $Cuenta"

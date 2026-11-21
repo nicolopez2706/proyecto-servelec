@@ -191,3 +191,57 @@ def test_reset_clave_por_consola(tmp_path, monkeypatch):
     assert st == 200 and d["user"]["must_change"] is True
     with pytest.raises(SystemExit):
         reset_clave.restablecer("nadie@servelec.com.ar")
+
+
+def test_una_rafaga_en_paralelo_no_se_salta_el_limite(env, monkeypatch):
+    """30 intentos con clave mala a la vez: solo LOGIN_MAX_FAILS pueden llegar a verificarse; el resto ya ve el bloqueo."""
+    import threading
+    services = env[0]
+    monkeypatch.setenv("LOGIN_MAX_FAILS", "5")
+    res = []
+
+    def intento():
+        try:
+            res.append("ok" if services.authenticate("ing@x", "mala") else "401")
+        except services.LoginLocked:
+            res.append("locked")
+
+    hilos = [threading.Thread(target=intento) for _ in range(30)]
+    [h.start() for h in hilos]
+    [h.join() for h in hilos]
+    assert res.count("401") == 5 and res.count("locked") == 25, res
+
+
+def test_secret_key_corta_o_vacia_se_regenera(tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    config._clave_auto.clear()
+    (tmp_path / "secret.key").write_text("abc")
+    k = config.settings.secret_key
+    assert len(k) >= 32 and (tmp_path / "secret.key").read_text() == k
+    config._clave_auto.clear()
+    (tmp_path / "secret.key").write_text("")
+    assert len(config.settings.secret_key) >= 32
+    monkeypatch.setenv("SECRET_KEY", "corta")                      # una clave corta en .env no se acepta
+    assert config.settings.secret_key_origin == "archivo"
+
+
+def test_no_se_puede_dejar_sin_administradores_ni_tocar_al_servicio(env):
+    import pytest
+    services, u = env[0], env[1]
+    sis = u["sis@x"]
+    with pytest.raises(ValueError, match="al menos un usuario de Sistemas"):
+        services.set_role(sis, "sis@x", active=False)
+    with pytest.raises(ValueError, match="al menos un usuario de Sistemas"):
+        services.set_role(sis, "sis@x", role="Gerencia")
+    with pytest.raises(LookupError):
+        services.set_role(sis, "nadie@x", role="Gerencia")
+    con = services.connect()
+    con.execute("INSERT INTO users(email,name,role,pw_hash) VALUES('n8n@servelec.local','n8n','Automatización','x')")
+    con.commit()
+    con.close()
+    with pytest.raises(ValueError, match="automatización"):
+        services.reset_password(sis, "n8n@servelec.local")
+    with pytest.raises(ValueError, match="automatización"):
+        services.set_role(sis, "n8n@servelec.local", active=False)

@@ -38,3 +38,14 @@ def test_el_proyecto_actual_esta_limpio():
         import pytest
         pytest.skip("no hay git")
     assert rs.revisar(lista) == []
+
+
+def test_nombres_compuestos_json_y_archivos_env_con_sufijo(tmp_path):
+    assert _rev(tmp_path, "x.env", "SEED_PASSWORD=hunter2hunter2")
+    assert _rev(tmp_path, "x.env", "GITHUB_TOKEN=ghp_abcdefghijklmnop1234")
+    assert _rev(tmp_path, "c.json", '{"password": "hunter2hunter2"}')
+    assert _rev(tmp_path, "w.json", '{"name":"X-Portal-Token","value":"abcdef123456"}')
+    assert _rev(tmp_path, "backend/.env.bak", "nada")
+    assert _rev(tmp_path, "backend/data/secret.key.antes_2026", "nada")
+    assert not _rev(tmp_path, "backend/.env.example", "# SECRET_KEY=")
+    assert not _rev(tmp_path, "w2.json", '{"name":"Authorization","value":"Bearer PEGAR_ACA_EL_TOKEN"}')

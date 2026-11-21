@@ -12,6 +12,7 @@ import functools
 import tempfile
 import threading
 import time
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -98,7 +99,12 @@ class XlsxDoc:
 
     def __init__(self, path, out_ext=None):
         self.path = Path(path)
-        self.wb = load_workbook(path, keep_vba=self.path.suffix.lower() == ".xlsm")
+        with warnings.catch_warnings(record=True) as avisos:
+            warnings.simplefilter("always")
+            self.wb = load_workbook(path, keep_vba=self.path.suffix.lower() == ".xlsm")
+        # openpyxl avisa «... will be removed» cuando descarta algo que no sabe conservar (minigráficos, validaciones extendidas...)
+        self.descartado = sorted({str(w.message).split(" extension")[0].split(" will be")[0][:80] for w in avisos
+                                  if "removed" in str(w.message) or "lost" in str(w.message)})
         self.out_ext = out_ext or self.path.suffix
 
     @staticmethod
@@ -1019,6 +1025,9 @@ def revise_and_save(path, doc, mode, entry, today=None):
     if getattr(doc, "kind", "") == "xlsx" and path.suffix.lower() in XLSX_EXTS:
         try:
             check_no_loss(path, tmp)
+            if getattr(doc, "descartado", None) and not settings.allow_content_loss:
+                raise ValueError("no se modificó porque se perdería contenido que el portal no sabe conservar: "
+                                 + ", ".join(doc.descartado) + ". Cambialo a mano en esa planilla.")
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
