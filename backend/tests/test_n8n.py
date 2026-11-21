@@ -137,3 +137,9 @@ def test_vista_previa_de_limpieza_para_n8n(env):
     assert (d / "MDA300_L1V1R0_10-10-24.xlsx").exists()               # solo mira, no mueve nada
     assert dispatch("POST", "/api/cleanup", {}, {"dry_run": False}, tok)[0] == 403   # ejecutar la limpieza no le toca
     assert dispatch("GET", "/api/cleanup/preview", {}, {}, make_token("ab@x"))[0] == 403
+
+
+def test_las_pruebas_no_heredan_el_n8n_del_env_real():
+    """Protege contra el accidente de correr pytest con un .env que tiene N8N_WEBHOOK_URL: no debe salir ningún aviso."""
+    from app.config import settings
+    assert settings.n8n_url == "" and events.emit("Creó pedido", "#1") is False
