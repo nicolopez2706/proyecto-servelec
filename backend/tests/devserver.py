@@ -36,6 +36,7 @@ class H(BaseHTTPRequestHandler):
     do_GET = lambda s: s._go("GET")
     do_POST = lambda s: s._go("POST")
     do_PATCH = lambda s: s._go("PATCH")
+    do_DELETE = lambda s: s._go("DELETE")
 
     def log_message(self, *a):
         pass

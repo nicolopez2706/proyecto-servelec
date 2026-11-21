@@ -70,13 +70,13 @@ def test_usuario_nuevo_recibe_clave_temporal_y_debe_cambiarla(env):
     assert _login("nueva@servelec.com.ar", "Una-clave-buena-2026")[1]["user"]["must_change"] is False
 
 
-def test_alta_con_clave_elegida_tambien_obliga_a_cambiar_y_valida(env):
+def test_alta_con_clave_elegida_se_valida_y_no_obliga_a_cambiarla(env):
     services_, u, *_ = env
     with pytest.raises(ValueError):
         services.create_user(u["sis@x"], "x@servelec.com.ar", "X", "Gerencia", "cambiar123")
     r = services.create_user(u["sis@x"], "y@servelec.com.ar", "Y", "Gerencia", "Provisoria-77")
     assert r["temp"] is None                                     # no se repite en pantalla una clave que ya conoce quien la puso
-    assert _login("y@servelec.com.ar", "Provisoria-77")[1]["user"]["must_change"] is True
+    assert _login("y@servelec.com.ar", "Provisoria-77")[1]["user"]["must_change"] is False      # Sistemas puede dejar la clave que ya conocen
 
 
 def test_las_claves_temporales_son_distintas(env):
@@ -245,3 +245,53 @@ def test_no_se_puede_dejar_sin_administradores_ni_tocar_al_servicio(env):
         services.reset_password(sis, "n8n@servelec.local")
     with pytest.raises(ValueError, match="automatización"):
         services.set_role(sis, "n8n@servelec.local", active=False)
+
+
+def test_clave_elegida_por_sistemas_se_conserva_y_se_puede_obligar_a_cambiarla(env):
+    services, u = env[0], env[1]
+    sis = u["sis@x"]
+    r = services.create_user(sis, "a@x.com", "A", "Gerencia", "31456789")             # por ejemplo el DNI
+    assert r["temp"] is None and services.authenticate("a@x.com", "31456789")["must_change"] is False
+    services.create_user(sis, "b@x.com", "B", "Gerencia", "31456780", force_change=True)
+    assert services.authenticate("b@x.com", "31456780")["must_change"] is True
+    t = services.create_user(sis, "c@x.com", "C", "Gerencia")["temp"]                 # clave generada: siempre obliga
+    assert services.authenticate("c@x.com", t)["must_change"] is True
+    services.reset_password(sis, "c@x.com", "98765432")                               # clave elegida al restablecer
+    assert services.authenticate("c@x.com", "98765432")["must_change"] is False
+
+
+def test_eliminar_usuarios_desactivados(env):
+    import pytest
+    from app.permissions import PermissionDenied
+    services, u = env[0], env[1]
+    sis = u["sis@x"]
+    with pytest.raises(PermissionDenied):
+        services.delete_user(u["ger@x"], "ab@x")
+    with pytest.raises(ValueError, match="desactivarlo"):
+        services.delete_user(sis, "ab@x")                                             # activo: no se elimina
+    with pytest.raises(ValueError, match="vos mismo"):
+        services.delete_user(sis, "sis@x")
+    with pytest.raises(LookupError):
+        services.delete_user(sis, "nadie@x")
+    services.set_role(sis, "ab@x", active=False)
+    services.delete_user(sis, "ab@x")
+    assert services.get_user("ab@x") is None and all(x["email"] != "ab@x" for x in services.list_users(sis))
+    assert services.list_audit(u["ger@x"])[0]["action"] == "Eliminó usuario"
+    con = services.connect()
+    con.execute("INSERT INTO users(email,name,role,pw_hash,active) VALUES('n8n@servelec.local','n8n','Automatización','x',0)")
+    con.commit()
+    con.close()
+    with pytest.raises(ValueError, match="automatización"):
+        services.delete_user(sis, "n8n@servelec.local")
+
+
+def test_eliminar_por_la_api(env):
+    from app import router
+    services, u = env[0], env[1]
+    from app.security import make_token
+    tok = make_token("sis@x")
+    st, _ = router.dispatch("DELETE", "/api/users/ab%40x".replace("%40", "@"), {}, {}, tok)
+    assert st == 400
+    router.dispatch("PATCH", "/api/users/ab@x", {}, {"active": False}, tok)
+    st, d = router.dispatch("DELETE", "/api/users/ab@x", {}, {}, tok)
+    assert st == 200 and d == {"ok": True}

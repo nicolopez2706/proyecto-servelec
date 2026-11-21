@@ -75,8 +75,9 @@ ROUTES = [
     ("GET", r"/api/changes", lambda u, m, q, b: services.changes_log(u, q.get("q", ""))),
     ("GET", r"/api/audit", lambda u, m, q, b: services.list_audit(u)),
     ("GET", r"/api/users", lambda u, m, q, b: services.list_users(u)),
-    ("POST", r"/api/users", lambda u, m, q, b: services.create_user(u, b.get("email", ""), b.get("name", ""), b.get("role", ""), b.get("password", ""))),
-    ("POST", r"/api/users/([^/]+)/reset", lambda u, m, q, b: services.reset_password(u, m[0], b.get("password", ""))),
+    ("POST", r"/api/users", lambda u, m, q, b: services.create_user(u, b.get("email", ""), b.get("name", ""), b.get("role", ""), b.get("password", ""), bool(b.get("force_change")))),
+    ("POST", r"/api/users/([^/]+)/reset", lambda u, m, q, b: services.reset_password(u, m[0], b.get("password", ""), bool(b.get("force_change")))),
+    ("DELETE", r"/api/users/([^/]+)", lambda u, m, q, b: services.delete_user(u, m[0])),
     ("PATCH", r"/api/users/([^/]+)", lambda u, m, q, b: services.set_role(u, m[0], b.get("role"), b.get("active")) or {"ok": True}),
 ]
 _COMPILED = [(meth, re.compile("^" + pat + "$"), fn) for meth, pat, fn in ROUTES]

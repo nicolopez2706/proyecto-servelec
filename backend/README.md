@@ -73,6 +73,8 @@ Pantalla *Asistente*: entiende frases en español («cambiar X por Y», «qué c
 
 ## Seguridad y claves
 - Cada usuario nace con una clave temporal distinta (`seed.py`) y el portal no lo deja seguir hasta que la cambia (mínimo 10 caracteres, sin claves comunes).
+- Al dar de alta desde *Usuarios*: si Sistemas escribe la clave inicial (por ejemplo una que la persona ya conoce), esa clave se **mantiene** y cambiarla es opcional (hay una casilla para obligarla). Si la deja vacía, el portal genera una temporal que sí hay que cambiar. Ojo: una clave tipo DNI es fácil de adivinar; el bloqueo por intentos ayuda, pero conviene que la cambien.
+- Los usuarios **desactivados** se pueden eliminar (botón *Eliminar* en *Usuarios*); su historial se conserva.
 - Sistemas puede restablecer la clave de alguien desde *Usuarios* (se muestra una temporal una sola vez); si se perdió la de Sistemas: `python reset_clave.py correo`.
 - 5 intentos fallidos seguidos bloquean ese correo 15 minutos (`LOGIN_MAX_FAILS`, `LOGIN_LOCK_MINUTES`).
 - `SECRET_KEY` se genera sola en `DATA_DIR\secret.key` si no se define. Los valores de ejemplo no se aceptan. Si cambia, hay que regenerar el token de n8n (`python servicio_n8n.py`).

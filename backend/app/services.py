@@ -151,9 +151,10 @@ def change_password(user, current, new):
         con.close()
 
 
-def create_user(actor, email, name, role, password=""):
-    """Alta de usuario. Sin clave, el portal genera una temporal (se muestra una sola vez). En ambos casos la persona
-    tiene que cambiarla en su primer ingreso."""
+def create_user(actor, email, name, role, password="", force_change=False):
+    """Alta de usuario. Sin clave, el portal genera una temporal (se muestra una sola vez) y la persona tiene que cambiarla
+    en su primer ingreso. Si Sistemas escribe una clave (por ejemplo la que ya conoce la persona), esa clave se mantiene y
+    cambiarla es opcional, salvo que se pida obligarlo (force_change)."""
     require(actor, "admin")
     if role not in ROLES:
         raise ValueError("Rol inválido.")
@@ -166,9 +167,10 @@ def create_user(actor, email, name, role, password=""):
         _validar_clave(password, email)
     con = connect()
     try:
-        con.execute("INSERT INTO users(email,name,role,pw_hash,must_change) VALUES(?,?,?,?,1)",
-                    (email, name.strip(), role, hash_password(password)))
-        audit(con, actor["email"], "Creó usuario", email, role)
+        obligar = 1 if (generada or force_change) else 0
+        con.execute("INSERT INTO users(email,name,role,pw_hash,must_change) VALUES(?,?,?,?,?)",
+                    (email, name.strip(), role, hash_password(password), obligar))
+        audit(con, actor["email"], "Creó usuario", email, role + ("" if obligar or generada else " (con la clave que eligió Sistemas, sin obligar a cambiarla)"))
         con.commit()
     except Exception as e:
         if "UNIQUE" in str(e):
@@ -179,7 +181,7 @@ def create_user(actor, email, name, role, password=""):
     return {"ok": True, "temp": password if generada else None}
 
 
-def reset_password(actor, email, new=""):
+def reset_password(actor, email, new="", force_change=False):
     """Sistemas restablece la clave de alguien que la olvido (o desbloquea su ingreso). Nadie puede ver la clave
     anterior: se pone una temporal nueva, que se muestra una sola vez y obliga a cambiarla al ingresar."""
     require(actor, "admin")
@@ -195,13 +197,38 @@ def reset_password(actor, email, new=""):
             raise LookupError("No existe ese usuario.")
         if u["role"] == SERVICE_ROLE:         # a ese usuario se le pondría must_change y n8n quedaría bloqueado
             raise ValueError("El usuario de automatización no tiene clave de ingreso: su acceso es el token de servicio_n8n.py.")
-        con.execute("UPDATE users SET pw_hash=?, must_change=1 WHERE email=?", (hash_password(new), email))
+        con.execute("UPDATE users SET pw_hash=?, must_change=? WHERE email=?",
+                    (hash_password(new), 1 if (generada or force_change) else 0, email))
         con.execute("DELETE FROM login_fail WHERE email=?", (email,))
         audit(con, actor["email"], "Restableció la clave de", email)          # la clave nunca se guarda en la auditoria
         con.commit()
     finally:
         con.close()
     return {"ok": True, "temp": new if generada else None}
+
+
+def delete_user(actor, email):
+    """Elimina un usuario que ya está desactivado. Su historial (pedidos, auditoría) se conserva: ahí queda su correo."""
+    require(actor, "admin")
+    email = email.strip().lower()
+    con = connect()
+    try:
+        u = con.execute("SELECT role, active FROM users WHERE email=?", (email,)).fetchone()
+        if not u:
+            raise LookupError("No existe ese usuario.")
+        if u["role"] == SERVICE_ROLE:
+            raise ValueError("El usuario de automatización no se elimina desde acá (para apagarlo: python servicio_n8n.py --desactivar).")
+        if email == actor["email"]:
+            raise ValueError("No podés eliminarte a vos mismo.")
+        if u["active"]:
+            raise ValueError("Primero hay que desactivarlo; solo se eliminan usuarios desactivados.")
+        con.execute("DELETE FROM users WHERE email=?", (email,))
+        con.execute("DELETE FROM login_fail WHERE email=?", (email,))
+        audit(con, actor["email"], "Eliminó usuario", email)
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True}
 
 
 def list_users(actor):
