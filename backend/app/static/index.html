@@ -138,8 +138,8 @@ const can = (p) => S.perms.includes(p);
 const pl = (n, w) => `${n} ${n === 1 ? w : w === 'acceso directo' ? 'accesos directos' : w + 's'}`;
 const fdate = (iso) => iso ? new Date(iso).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 const base = (p) => String(p || '').split(/[\\/]/).pop();
-const ICON = { asistente: 'sparkles', inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', historial: 'clock', revisiones: 'layers', accesos: 'link', auditoria: 'shield', usuarios: 'users', estado: 'server' };
-const TINT = { asistente: 't-or', inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', historial: 't-gr', revisiones: 't-gr', accesos: 't-tl', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
+const ICON = { asistente: 'sparkles', inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', historial: 'clock', revisiones: 'layers', accesos: 'link', magnus: 'check-circle', auditoria: 'shield', usuarios: 'users', estado: 'server' };
+const TINT = { asistente: 't-or', inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', historial: 't-gr', revisiones: 't-gr', accesos: 't-tl', magnus: 't-in', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
 const ic = (n, c = '') => `<svg class="ic ${c}" aria-hidden="true" viewBox="0 0 24 24"><use href="#i-${n}"/></svg>`;
 const chip = (n, t, c = '') => `<span class="chip ${t} ${c}">${ic(n)}</span>`;
 const head = (r, h, lead, right) => `<div class="phead">${chip(ICON[r], TINT[r])}<div class="pt"><h1>${h}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</div>${right ? `<div class="right">${right}</div>` : ''}</div>`;
@@ -198,7 +198,7 @@ function loginView(msg) {
 /* ====================== estructura ====================== */
 const NAV = [
   ['Trabajo', [['inicio', 'Inicio'], ['asistente', 'Asistente'], ['pedidos', 'Pedidos'], ['nuevo', 'Cambiar un código'], ['reemplazos', 'Reemplazos posibles'], ['codigos', 'Códigos'], ['solicitudes', 'Códigos que faltan'], ['buscar', 'Buscar en planillas']]],
-  ['Control', [['historial', 'Historial de cambios'], ['revisiones', 'Revisiones y obsoletos', 'revs'], ['accesos', 'Accesos directos', 'links'], ['auditoria', 'Auditoría', 'audit']]],
+  ['Control', [['historial', 'Historial de cambios'], ['revisiones', 'Revisiones y obsoletos', 'revs'], ['accesos', 'Accesos directos', 'links'], ['magnus', 'Control contra Magnus', 'magnus'], ['auditoria', 'Auditoría', 'audit']]],
   ['Administración', [['usuarios', 'Usuarios', 'admin'], ['estado', 'Estado del sistema', 'admin']]],
 ];
 const LABEL = {}; NAV.forEach(([g, items]) => items.forEach((i) => { LABEL[i[0]] = i[1]; }));
@@ -403,6 +403,20 @@ V.accesos = async () => {
   return h;
 };
 
+V.magnus = async () => {
+  const r = await api('GET', '/api/magnus');
+  let h = head('magnus', 'Control contra Magnus', 'Compara los códigos que usan las planillas (y el catálogo del portal) con los artículos que exporta Magnus. Solo informa: no modifica nada.');
+  if (!r.configurado) return h + `<div class="notice"><b>Todavía no está conectado.</b> Alguien exporta los artículos de Magnus a una planilla o CSV y deja el archivo en una carpeta. Después, Sistemas pone esa ruta en <span class="mono">MAGNUS_EXPORT</span> en el archivo .env y reinicia el portal.</div>`;
+  const u = r.ultimo;
+  h += `<div class="panel">${h2i('file', 'Exportación de Magnus')}<dl class="kv"><dt>Ruta</dt><dd class="mono small">${esc(r.ruta)}</dd><dt>Archivo que se usaría</dt><dd>${r.archivo ? `<span class="mono small">${esc(r.archivo)}</span> <span class="muted small">(guardado el ${esc(r.archivo_fecha)})</span>` : `<span class="pill p-bad">${esc(r.error || 'no se encuentra')}</span>`}</dd></dl>${can('magnus_run') ? `<p style="margin-top:12px"><button class="btn primary" data-act="magnusrun"${r.archivo ? '' : ' disabled'}>${ic('refresh')} Comparar ahora</button></p>` : ''}</div>`;
+  if (u) {
+    h += `<div class="tiles">${tile(u.faltan, 'faltan en Magnus', 'alert', u.faltan ? 't-am' : 't-gr')}${tile(u.distinta, 'con descripción distinta', 'swap', u.distinta ? 't-am' : 't-gr')}${tile(u.solo_magnus, 'solo en Magnus', 'tag', 't-in')}${tile(u.en_magnus, 'códigos en Magnus', 'check-circle', 't-tl')}</div>`;
+    h += `<div class="panel">${h2i('clipboard', 'Último control')}<p class="small muted">${esc(u.fecha)} · archivo <span class="mono">${esc(u.archivo)}</span> · pedido por ${esc(u.por)}</p>${u.primeros_faltantes && u.primeros_faltantes.length ? `<p class="small"><b>Primeros que faltan:</b> ${u.primeros_faltantes.map(esc).join(', ')}</p>` : '<p class="small">No falta ningún código en Magnus.</p>'}<p><button class="btn" data-act="magnusdl" data-name="${esc(u.informe)}">${ic('arrow-right')} Descargar el informe completo (Excel)</button></p></div>`;
+  }
+  if (r.informes.length > 1) h += `<div class="panel">${h2i('clock', 'Informes anteriores')}<ul class="small">${r.informes.slice(1).map((n) => `<li><a href="#" data-act="magnusdl" data-name="${esc(n)}">${esc(n)}</a></li>`).join('')}</ul></div>`;
+  return h;
+};
+
 V.revisiones = async () => {
   const s = await api('GET', '/api/revisions');
   return head('revisiones', 'Revisiones y obsoletos', 'En una familia pueden convivir varias versiones, pero nunca dos revisiones de la misma versión. La revisión anterior va a la carpeta OBSOLETO.')
@@ -508,6 +522,8 @@ document.addEventListener('click', (e) => {
     if (a === 'cleanup') return modal(`${h2i('refresh', 'Ejecutar la limpieza')}<p>Se mandan a OBSOLETO las revisiones más viejas de cada versión (pisando duplicados). Esto mueve archivos de verdad.</p><div class="acts"><button class="btn primary" data-act="docleanup">${ic('refresh')} Ejecutar</button><button class="btn" data-act="mclose">${ic('arrow-left')} Volver</button></div>`);
     if (a === 'repairlinks') { const r = await api('POST', '/api/links/repair', { dry_run: true }); return modal(`${h2i('wrench', 'Apuntar a la revisión vigente')}<p>Se van a actualizar <b>${pl(r.fixed.length, 'acceso directo')}</b>:</p><ul class="small" style="max-height:220px;overflow:auto">${r.fixed.map((x) => `<li><span class="mono">${esc(x.lnk)}</span> → ${esc(x.to)}</li>`).join('')}</ul><div class="acts"><button class="btn primary" data-act="dorepairlinks">${ic('check')} Actualizar</button><button class="btn" data-act="mclose">${ic('arrow-left')} Volver</button></div>`); }
     if (a === 'dorepairlinks') { const r = await api('POST', '/api/links/repair', { dry_run: false }); closeModal(); toast(`Listo: ${pl(r.fixed.length, 'acceso directo')} actualizado${r.failed.length ? `, ${r.failed.length} con error` : ''}`, !!r.failed.length); return render(); }
+    if (a === 'magnusrun') { toast('Comparando… puede tardar un momento'); const r = await api('POST', '/api/magnus/run'); toast(`Listo: ${pl(r.faltan, 'código')} ${r.faltan === 1 ? 'falta' : 'faltan'} en Magnus`); return render(); }
+    if (a === 'magnusdl') { const r = await api('GET', '/api/magnus/informe?name=' + encodeURIComponent(t.dataset.name)); const bin = atob(r.base64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); const el = document.createElement('a'); el.href = url; el.download = r.name; document.body.appendChild(el); el.click(); el.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); return; }
     if (a === 'docleanup') { const r = await api('POST', '/api/cleanup', { dry_run: false }); closeModal(); toast(`Listo: ${pl(r.moved.length, 'archivo')} a OBSOLETO`); return render(); }
     if (a === 'toggleuser') { await api('PATCH', '/api/users/' + encodeURIComponent(t.dataset.email), { active: t.dataset.active !== '1' }); return render(); }
     if (a === 'usecode') { location.hash = t.dataset.href; return; }

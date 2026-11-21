@@ -108,6 +108,26 @@ class Settings:
         return os.getenv("IGNORE_LOCKS", "").strip().lower() in ("1", "true", "si", "sí", "on")
 
     @property
+    def magnus_export(self):
+        """MAGNUS_EXPORT: planilla (.xlsx/.xls/.ods/.csv) con los artículos que exporta Magnus, o una carpeta donde se
+        deja esa exportación (se usa la más nueva). Vacío = el control contra Magnus no está configurado."""
+        return os.getenv("MAGNUS_EXPORT", "").strip().strip('"')
+
+    @property
+    def magnus_col_codigo(self):
+        """MAGNUS_COL_CODIGO: nombre del encabezado (o letra de columna) del código en la exportación. Vacío = se detecta."""
+        return os.getenv("MAGNUS_COL_CODIGO", "").strip()
+
+    @property
+    def magnus_col_desc(self):
+        """MAGNUS_COL_DESC: ídem para la descripción."""
+        return os.getenv("MAGNUS_COL_DESC", "").strip()
+
+    @property
+    def magnus_dir(self):
+        return self.data_dir / "magnus"
+
+    @property
     def allow_content_loss(self):
         """PERMITIR_PERDIDA_XLSX=1: guardar un .xlsx aunque se pierdan imagenes, formas, graficos o tablas dinamicas que
         la libreria no sabe conservar. Apagado por defecto: ese archivo queda sin tocar y se avisa en el pedido."""

@@ -27,6 +27,7 @@ KINDS = {
     "Generó código": "codigo_generado",
     "Rechazó solicitud de código": "solicitud_rechazada",
     "Limpieza de obsoletos": "limpieza_obsoletos",
+    "Control contra Magnus": "magnus_control",
 }
 
 _Q = queue.Queue(maxsize=500)

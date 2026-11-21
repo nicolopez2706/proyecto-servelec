@@ -1,0 +1,170 @@
+{
+  "name": "Portal SERVELEC - control contra Magnus (semanal)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 9,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "120e823a-e589-4a69-a2c8-46ab27e23345",
+      "name": "Cada lunes 9:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:8000/api/magnus/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer PEGAR_ACA_EL_TOKEN"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        },
+        "method": "POST"
+      },
+      "id": "98099085-0d56-4e3c-bcc9-ed8b479440c9",
+      "name": "Pedir al portal que compare con Magnus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f749142e-7825-48fc-a688-e2f9fff2ee5c",
+              "leftValue": "={{ $json.faltan + $json.distinta }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f939433a-68e4-42dc-b7ba-b3c36474483e",
+      "name": "¿Hay diferencias?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma el aviso semanal del control contra Magnus: texto simple + versión HTML con tarjetas y botón.\nconst r = $input.first().json;\nconst esc = (s) => String(s ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst url = r.portal_url || 'http://127.0.0.1:8000/#/magnus';\nconst tarjeta = (n, t, color) => `<td style=\"padding:12px;text-align:center;border:1px solid #e5e7eb;border-radius:8px\"><div style=\"font-size:26px;font-weight:700;color:${color}\">${n}</div><div style=\"font-size:12px;color:#6b7280\">${t}</div></td>`;\nconst primeros = (r.primeros_faltantes || []).map(esc).join(', ');\nconst html = `\n<div style=\"font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111827\">\n  <div style=\"background:#1e3a5f;color:#fff;padding:18px 22px;border-radius:10px 10px 0 0\">\n    <div style=\"font-size:12px;opacity:.8;letter-spacing:.04em\">PORTAL DE DOCUMENTACIÓN · SERVELEC</div>\n    <div style=\"font-size:20px;font-weight:600;margin-top:4px\">Control contra Magnus</div>\n  </div>\n  <div style=\"border:1px solid #e5e7eb;border-top:0;padding:20px 22px;border-radius:0 0 10px 10px\">\n    <p style=\"font-size:15px;margin:0 0 14px\">Se comparó la exportación de Magnus (<b>${esc(r.archivo)}</b>, ${esc(r.fecha)}) con las planillas y el catálogo del portal.</p>\n    <table style=\"width:100%;border-spacing:8px 0\"><tr>\n      ${tarjeta(r.faltan, 'faltan en Magnus', r.faltan ? '#b45309' : '#047857')}\n      ${tarjeta(r.distinta, 'con descripción distinta', r.distinta ? '#b45309' : '#047857')}\n      ${tarjeta(r.solo_magnus, 'solo en Magnus', '#1e3a5f')}\n    </tr></table>\n    ${primeros ? `<p style=\"font-size:13px;margin:16px 0 0\"><b>Primeros códigos que faltan:</b> ${primeros}</p>` : ''}\n    <p style=\"margin:20px 0 6px\"><a href=\"${esc(url)}\" style=\"background:#1e3a5f;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:14px;display:inline-block\">Ver y descargar el informe</a></p>\n    <p style=\"color:#6b7280;font-size:12px;margin:10px 0 0\">Este control solo informa: no modifica planillas ni Magnus.</p>\n  </div>\n</div>`;\nconst texto = `Control contra Magnus (${r.fecha}): ${r.faltan} código(s) faltan en Magnus, ${r.distinta} con descripción distinta, ${r.solo_magnus} solo en Magnus.` +\n  (primeros ? `\\nPrimeros que faltan: ${(r.primeros_faltantes || []).join(', ')}` : '') + `\\n${url}`;\nreturn [{ json: { asunto: `Portal SERVELEC: control contra Magnus (${r.faltan} faltan, ${r.distinta} distintas)`, texto, html } }];\n"
+      },
+      "id": "5d46b099-55d8-47ab-ac2e-ab524ee7d24f",
+      "name": "Armar texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "cobranzas@servelec.com.ar",
+        "subject": "={{ $json.asunto }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "c7b7e289-c628-4823-9ad0-5fd640bb5e5c",
+      "name": "Enviar correo",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1040,
+        -80
+      ]
+    }
+  ],
+  "connections": {
+    "Cada lunes 9:30": {
+      "main": [
+        [
+          {
+            "node": "Pedir al portal que compare con Magnus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir al portal que compare con Magnus": {
+      "main": [
+        [
+          {
+            "node": "¿Hay diferencias?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay diferencias?": {
+      "main": [
+        [
+          {
+            "node": "Armar texto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Armar texto": {
+      "main": [
+        [
+          {
+            "node": "Enviar correo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

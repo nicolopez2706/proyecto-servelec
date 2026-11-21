@@ -3,7 +3,7 @@ FastAPI (main.py) y el servidor de prueba usan esta misma tabla."""
 import re
 import traceback
 
-from . import assistant, engine, events, services
+from . import assistant, engine, events, magnus, services
 from .config import settings
 from .permissions import PERMS, PermissionDenied, require
 from .security import make_token, read_token
@@ -69,6 +69,9 @@ ROUTES = [
     ("POST", r"/api/cleanup", lambda u, m, q, b: services.run_cleanup(u, bool(b.get("dry_run", True)))),
     ("GET", r"/api/links", lambda u, m, q, b: services.links_report(u)),
     ("POST", r"/api/links/repair", lambda u, m, q, b: services.links_repair(u, bool(b.get("dry_run", True)))),
+    ("GET", r"/api/magnus", lambda u, m, q, b: magnus.estado(u)),
+    ("POST", r"/api/magnus/run", lambda u, m, q, b: magnus.ejecutar(u)),
+    ("GET", r"/api/magnus/informe", lambda u, m, q, b: magnus.informe(u, q.get("name", ""))),
     ("GET", r"/api/changes", lambda u, m, q, b: services.changes_log(u, q.get("q", ""))),
     ("GET", r"/api/audit", lambda u, m, q, b: services.list_audit(u)),
     ("GET", r"/api/users", lambda u, m, q, b: services.list_users(u)),
