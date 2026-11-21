@@ -77,8 +77,13 @@ def test_un_pedido_lento_no_congela_el_resto_del_portal(env, monkeypatch):
                  "client": ("c", 1), "root_path": ""}
         estado = {}
 
+        pedido = [{"type": "http.request", "body": b"", "more_body": False}]
+
         async def receive():
-            return {"type": "http.request", "body": b"", "more_body": False}
+            if pedido:
+                return pedido.pop()
+            await asyncio.sleep(3600)          # como un navegador conectado: no manda nada mas (si devolviera algo
+            return {"type": "http.disconnect"}  # al instante, la respuesta de archivos giraria sin parar y se colgaria)
 
         async def send(m):
             if m["type"] == "http.response.start":
