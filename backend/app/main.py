@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import engine, services
+from .cabeceras import CabecerasSeguras
 from .config import settings
 from .db import init_db
 from .router import dispatch
@@ -46,6 +47,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Portal de documentación SERVELEC", version="0.2", lifespan=lifespan)
+app.add_middleware(CabecerasSeguras)
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PATCH", "DELETE"])
@@ -55,6 +57,8 @@ async def api(rest: str, request: Request):
         try:
             body = await request.json()
         except Exception:
+            body = {}
+        if not isinstance(body, dict):                   # un cuerpo que no es un objeto JSON se ignora (no debe romper nada)
             body = {}
     auth = request.headers.get("authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else None

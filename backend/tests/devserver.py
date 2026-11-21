@@ -16,7 +16,11 @@ class H(BaseHTTPRequestHandler):
     def _send(self, status, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status); self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
+        self.send_header("Content-Length", str(len(data)))
+        from app.cabeceras import BASE
+        for k, v in BASE:                                    # mismas cabeceras que en el portal real (para probar que la pantalla las soporta)
+            self.send_header(k.decode(), v.decode())
+        self.end_headers(); self.wfile.write(data)
 
     def _go(self, method):
         u = urlparse(self.path)
