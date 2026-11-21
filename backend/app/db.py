@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS conv (
 
 def connect():
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(settings.db_path)
+    con = sqlite3.connect(settings.db_path, timeout=15)      # si otra operación está escribiendo, espera en vez de fallar
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     return con

@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import math
 import secrets
+import threading
 from pathlib import Path
 
 from . import engine, events
@@ -13,6 +14,19 @@ from .permissions import PermissionDenied, can, require, ROLES
 from .security import check_password, hash_password
 
 OPEN = "pendiente"
+# Un solo cambio de planillas a la vez: si dos pedidos tocaran el mismo archivo al mismo tiempo, uno pisaría al otro.
+_FILES_LOCK = threading.RLock()
+
+
+def _claim(con, oid, status, **campos):
+    """Pasa el pedido de «pendiente» a otro estado en un solo paso. Si otra persona lo decidió un instante antes,
+    no cambia nada y avisa (así dos aprobaciones simultáneas no ejecutan dos veces)."""
+    sets = ", ".join(f"{k}=?" for k in campos)
+    cur = con.execute(f"UPDATE orders SET status=?{', ' + sets if sets else ''} WHERE id=? AND status=?",
+                      (status, *campos.values(), oid, OPEN))
+    if cur.rowcount != 1:
+        con.rollback()
+        raise ValueError("El pedido ya no está esperando decisión.")
 
 
 def _writable():
@@ -386,7 +400,7 @@ def reject(user, oid, comment=""):
         o = _order(con, oid)
         if o["status"] != OPEN:
             raise ValueError("El pedido ya no está esperando decisión.")
-        con.execute("UPDATE orders SET status='rechazado', decided_by=?, decided_at=? WHERE id=?", (user["email"], now(), oid))
+        _claim(con, oid, "rechazado", decided_by=user["email"], decided_at=now())
         event(con, oid, user["email"], "Rechazó el pedido." + (f" Motivo: {comment}" if comment else ""))
         audit(con, user["email"], "Rechazó pedido", f"#{oid}", comment)
         con.commit()
@@ -403,7 +417,7 @@ def cancel(user, oid):
             raise ValueError("Solo se cancelan pedidos pendientes.")
         if o["created_by"] != user["email"] and user["role"] != "Sistemas":
             raise PermissionDenied("Solo quien lo pidió (o Sistemas) puede cancelarlo.")
-        con.execute("UPDATE orders SET status='cancelado' WHERE id=?", (oid,))
+        _claim(con, oid, "cancelado")
         event(con, oid, user["email"], "Canceló el pedido.")
         audit(con, user["email"], "Canceló pedido", f"#{oid}")
         con.commit()
@@ -442,13 +456,13 @@ def approve(user, oid, comment="", folders=None):
                 event(con, oid, user["email"], f"Cambió las carpetas donde se aplica: queda en {len(chosen)} de {len(cand)}, "
                                                f"sacó {len(cand) - len(chosen)}.")
         params["scope"] = chosen
-        con.execute("UPDATE orders SET params=?, status='ejecutando', decided_by=?, decided_at=? WHERE id=?",
-                    (json.dumps(params), user["email"], now(), oid))
+        _claim(con, oid, "ejecutando", params=json.dumps(params), decided_by=user["email"], decided_at=now())
         event(con, oid, user["email"], "Aprobó el pedido." + (f" Comentario: {comment}" if comment else ""))
         audit(con, user["email"], "Aprobó pedido", f"#{oid}", f"{len(chosen)} carpetas")
         con.commit()
         try:
-            _execute(con, oid, user)
+            with _FILES_LOCK:
+                _execute(con, oid, user)
         except Exception as e:                      # que no quede "ejecutando" para siempre si algo falla
             res = {"done": [], "failed": [{"file": "(todo el pedido)", "why": f"error inesperado: {e}"}], "skipped": [],
                    "changes": 0, "unchanged": [], "links_updated": 0, "links_manual": []}
@@ -578,6 +592,11 @@ def _execute(con, oid, approver):
 def revert(user, oid):
     require(user, "revert")
     _writable()
+    with _FILES_LOCK:              # el estado se lee adentro: dos «revertir» a la vez no pueden pisarse
+        return _revert(user, oid)
+
+
+def _revert(user, oid):
     con = connect()
     try:
         o = _order(con, oid)
@@ -616,7 +635,8 @@ def run_cleanup(user, dry_run=False):
     require(user, "cleanup")
     if not dry_run:
         _writable()
-    moved = engine.cleanup_folders(settings.docs_root, dry_run=dry_run)
+    with _FILES_LOCK:
+        moved = engine.cleanup_folders(settings.docs_root, dry_run=dry_run)
     if not dry_run:
         con = connect()
         try:
@@ -709,9 +729,9 @@ def code_exists(code):
 
 def _approve_reemplazos(con, o, user, comment):
     p = json.loads(o["params"])
+    _claim(con, o["id"], "completado", decided_by=user["email"], decided_at=now())
     added = _add_alts(con, p["code"], p["alts"], o["created_by"])
-    con.execute("UPDATE orders SET status='completado', result=?, decided_by=?, decided_at=? WHERE id=?",
-                (json.dumps({"added": added}), user["email"], now(), o["id"]))
+    con.execute("UPDATE orders SET result=? WHERE id=?", (json.dumps({"added": added}), o["id"]))
     event(con, o["id"], user["email"], "Aprobó el pedido." + (f" Comentario: {comment}" if comment else ""))
     event(con, o["id"], "sistema", f"Listo: {len(added)} reemplazos posibles agregados a {p['code']}.")
     audit(con, user["email"], "Aprobó pedido de reemplazos", f"#{o['id']}", f"{p['code']}: {', '.join(added)}")
