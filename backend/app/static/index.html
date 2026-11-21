@@ -115,6 +115,14 @@ details summary{cursor:pointer;color:var(--teal-d);font-weight:600;margin:8px 0}
 }
 @media(max-width:600px){.rows,.rows tbody{display:block}.rows tr{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid var(--line2)}.rows tr:last-child{border:0}.rows td{display:block;padding:0;border:0}.rows td:last-child{text-align:left!important}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.chatbox{display:flex;flex-direction:column;gap:12px;max-height:58vh;min-height:240px;overflow:auto;padding:2px}
+.msg{max-width:min(720px,94%);padding:11px 15px;border-radius:14px;line-height:1.45;overflow-wrap:anywhere}
+.msg.me{align-self:flex-end;background:var(--btn);color:#fff;border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--paper);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.bot.err{background:var(--red-bg);border-color:#EDBDB9}
+.msg ul{margin:8px 0 0;padding-left:20px}.msg li{margin:2px 0}
+.mcodes,.macts,.chatsug{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chatform{display:flex;gap:10px;margin-top:14px}.chatform input{flex:1}
 </style>
 </head>
 <body>
@@ -125,13 +133,13 @@ details summary{cursor:pointer;color:var(--teal-d);font-weight:600;margin:8px 0}
 /* ====================== utilidades ====================== */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const S = { token: localStorage.getItem('sv_token') || null, user: null, perms: [] };
+const S = { token: localStorage.getItem('sv_token') || null, user: null, perms: [], chat: [] };
 const can = (p) => S.perms.includes(p);
 const pl = (n, w) => `${n} ${n === 1 ? w : w === 'acceso directo' ? 'accesos directos' : w + 's'}`;
 const fdate = (iso) => iso ? new Date(iso).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 const base = (p) => String(p || '').split(/[\\/]/).pop();
-const ICON = { inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', historial: 'clock', revisiones: 'layers', accesos: 'link', auditoria: 'shield', usuarios: 'users', estado: 'server' };
-const TINT = { inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', historial: 't-gr', revisiones: 't-gr', accesos: 't-tl', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
+const ICON = { asistente: 'sparkles', inicio: 'home', pedidos: 'clipboard', nuevo: 'swap', reemplazos: 'lightbulb', codigos: 'tag', solicitudes: 'help', buscar: 'search', historial: 'clock', revisiones: 'layers', accesos: 'link', auditoria: 'shield', usuarios: 'users', estado: 'server' };
+const TINT = { asistente: 't-or', inicio: 't-or', pedidos: 't-tl', nuevo: 't-or', reemplazos: 't-am', codigos: 't-tl', solicitudes: 't-am', buscar: 't-in', historial: 't-gr', revisiones: 't-gr', accesos: 't-tl', auditoria: 't-in', usuarios: 't-or', estado: 't-gr' };
 const ic = (n, c = '') => `<svg class="ic ${c}" aria-hidden="true" viewBox="0 0 24 24"><use href="#i-${n}"/></svg>`;
 const chip = (n, t, c = '') => `<span class="chip ${t} ${c}">${ic(n)}</span>`;
 const head = (r, h, lead, right) => `<div class="phead">${chip(ICON[r], TINT[r])}<div class="pt"><h1>${h}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</div>${right ? `<div class="right">${right}</div>` : ''}</div>`;
@@ -172,7 +180,7 @@ const codeTag = (c) => `<span class="code">${esc(c)}</span>`;
 const nameOf = (email) => (S.names && S.names[email]) || email;
 
 /* ====================== ingreso ====================== */
-function logout() { localStorage.removeItem('sv_token'); S.token = null; S.user = null; S.perms = []; S.names = null; location.hash = ''; render(); }
+function logout() { localStorage.removeItem('sv_token'); S.token = null; S.user = null; S.perms = []; S.names = null; S.chat = []; location.hash = ''; render(); }
 function loginView(msg) {
   $('#root').innerHTML = `<div class="loginwrap"><div class="lbrand"><div class="logobox"><img src="/static/logo.png" alt="SERVELEC"></div>
   <div class="lmsg"><h1>Portal de documentación</h1><p>Un solo lugar para cambiar códigos en las planillas, mantener las revisiones al día y no perder ningún acceso directo.</p>
@@ -189,7 +197,7 @@ function loginView(msg) {
 
 /* ====================== estructura ====================== */
 const NAV = [
-  ['Trabajo', [['inicio', 'Inicio'], ['pedidos', 'Pedidos'], ['nuevo', 'Cambiar un código'], ['reemplazos', 'Reemplazos posibles'], ['codigos', 'Códigos'], ['solicitudes', 'Códigos que faltan'], ['buscar', 'Buscar en planillas']]],
+  ['Trabajo', [['inicio', 'Inicio'], ['asistente', 'Asistente'], ['pedidos', 'Pedidos'], ['nuevo', 'Cambiar un código'], ['reemplazos', 'Reemplazos posibles'], ['codigos', 'Códigos'], ['solicitudes', 'Códigos que faltan'], ['buscar', 'Buscar en planillas']]],
   ['Control', [['historial', 'Historial de cambios'], ['revisiones', 'Revisiones y obsoletos', 'revs'], ['accesos', 'Accesos directos', 'links'], ['auditoria', 'Auditoría', 'audit']]],
   ['Administración', [['usuarios', 'Usuarios', 'admin'], ['estado', 'Estado del sistema', 'admin']]],
 ];
@@ -240,6 +248,31 @@ V.inicio = async () => {
 function ordersTable(list) {
   return `<div style="overflow:auto"><table><thead><tr><th>#</th><th>Pedido</th><th>Estado</th><th>Lo pidió</th><th>Cuándo</th></tr></thead><tbody>${list.map((o) => `<tr class="click" data-go="pedidos/${o.id}"><td class="muted">${o.id}</td><td><div class="tcell">${orderChip(o)}<div><b>${esc(title(o))}</b>${o.summary ? `<div class="muted small">${pl(o.summary.cells, 'celda')} en ${pl(o.summary.files, 'archivo')}</div>` : ''}</div></div></td><td>${pill(o.status)}</td><td>${esc(nameOf(o.created_by))}</td><td class="small">${fdate(o.created_at)}</td></tr>`).join('')}</tbody></table></div>`;
 }
+
+/* ---- Asistente: chat que arma el pedido; solo propone, la persona confirma ---- */
+const chatHtml = () => S.chat.map((m, i) => {
+  if (m.role === 'me') return `<div class="msg me">${esc(m.text)}</div>`;
+  if (m.pending) return '<div class="msg bot"><span class="spin"></span> Buscando…</div>';
+  const r = m.reply;
+  const codes = r.codes ? `<div class="mcodes">${r.codes.map((c) => `<button type="button" class="btn sm" data-code="${esc(c.code)}" title="${esc(c.desc)}"><span class="mono">${esc(c.code)}</span>${c.desc ? ` <span class="muted">${esc(c.desc)}</span>` : ''}</button>`).join('')}</div>` : '';
+  const acts = (r.actions || r.links) ? `<div class="macts">${(r.actions || []).map((a, j) => `<button type="button" class="btn sm ${a.style === 'primary' ? 'primary' : ''}" data-act="chatdo" data-m="${i}" data-a="${j}"${m.done ? ' disabled' : ''}>${ic('send', 'sm')} ${esc(a.label)}</button>`).join('')}${(r.links || []).map((l) => `<a class="btn sm" href="${esc(l.href)}">${esc(l.label)}</a>`).join('')}</div>` : '';
+  const sug = r.suggest ? `<div class="chatsug">${r.suggest.map((x) => `<button type="button" class="btn sm" data-act="chatfill" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : '';
+  return `<div class="msg bot${r.error ? ' err' : ''}"><div>${esc(r.text)}</div>${r.bullets ? `<ul>${r.bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}${codes}${acts}${sug}</div>`;
+}).join('');
+function drawChat() { const el = $('#chat'); if (el) { el.innerHTML = chatHtml(); el.scrollTop = el.scrollHeight; } }
+async function chatAsk(body, shown) {
+  if (shown) S.chat.push({ role: 'me', text: shown });
+  S.chat.push({ role: 'bot', pending: true }); drawChat();
+  const slot = S.chat.length - 1; let ok = true;
+  try { S.chat[slot] = { role: 'bot', reply: await api('POST', '/api/assistant', body) }; }
+  catch (e) { ok = false; S.chat[slot] = { role: 'bot', reply: { text: e.message, error: true } }; }
+  drawChat(); return ok;
+}
+V.asistente = async () => {
+  if (!S.chat.length) S.chat.push({ role: 'bot', reply: await api('POST', '/api/assistant', { message: 'ayuda' }) });
+  return head('asistente', 'Asistente', 'Escribí lo que necesitás con tus palabras. Te muestro qué haría y vos confirmás con un botón. El asistente no aprueba ni revierte nada: eso lo decide siempre una persona.') +
+    `<div class="panel"><div class="chatbox" id="chat" aria-live="polite">${chatHtml()}</div><form data-form="chat" class="chatform"><input name="message" id="chatin" placeholder="Por ejemplo: cambiar DIS206AA por DIS206BA" autocomplete="off" maxlength="600" aria-label="Tu mensaje"><button class="btn primary" type="submit">${ic('send')} Enviar</button></form></div>`;
+};
 
 V.pedidos = async (arg, q) => {
   const st = q.get('estado') || '';
@@ -425,6 +458,7 @@ async function render() {
   } catch (e) { $('#root').innerHTML = shell(route, `<div class="notice bad">${esc(e.message)}</div>`); }
 }
 function afterRender(route) {
+  if (route === 'asistente') { const el = $('#chat'); if (el) el.scrollTop = el.scrollHeight; const i = $('#chatin'); if (i) i.focus(); }
   if (route === 'nuevo') { const t = $('#qon'); if (t) t.addEventListener('change', () => { $('#qbox').hidden = !t.checked; }); }
 }
 window.addEventListener('hashchange', () => { document.body.classList.remove('nav-open'); closeModal(); render(); });
@@ -477,6 +511,14 @@ document.addEventListener('click', (e) => {
     if (a === 'docleanup') { const r = await api('POST', '/api/cleanup', { dry_run: false }); closeModal(); toast(`Listo: ${pl(r.moved.length, 'archivo')} a OBSOLETO`); return render(); }
     if (a === 'toggleuser') { await api('PATCH', '/api/users/' + encodeURIComponent(t.dataset.email), { active: t.dataset.active !== '1' }); return render(); }
     if (a === 'usecode') { location.hash = t.dataset.href; return; }
+    if (a === 'chatfill') { const i = $('#chatin'); if (i) { i.value = t.dataset.text; i.focus(); } return; }
+    if (a === 'chatdo') {
+      const m = S.chat[+t.dataset.m]; const act = m.reply.actions[+t.dataset.a];
+      m.done = true; drawChat();
+      const ok = await chatAsk({ do: act.do, params: act.params }, null);
+      if (!ok) { m.done = false; drawChat(); } else refreshBadges().catch(() => {});
+      return;
+    }
     if (a === 'resetpw') return modal(`${h2i('lock', 'Restablecer la clave')}<p>Se le va a poner una clave temporal nueva a <b>${esc(t.dataset.email)}</b> y tendrá que cambiarla al ingresar. La clave que tiene hoy no se puede ver: simplemente deja de servir. Si estaba bloqueada por intentos fallidos, también se desbloquea.</p><div class="acts"><button class="btn primary" data-act="doresetpw" data-email="${esc(t.dataset.email)}">${ic('lock')} Restablecer</button><button class="btn" data-act="mclose">${ic('arrow-left')} Volver</button></div>`);
     if (a === 'doresetpw') { const r = await api('POST', '/api/users/' + encodeURIComponent(t.dataset.email) + '/reset', {}); render(); return tempModal(t.dataset.email, r.temp); }
   });
@@ -523,6 +565,7 @@ document.addEventListener('submit', (e) => {
         $('#previewbox').scrollIntoView({ behavior: 'smooth' });
         return;
       }
+      case 'chat': { const text = (d.message || '').trim(); if (!text) return; f.reset(); await chatAsk({ message: text }, text); const i = $('#chatin'); if (i) i.focus(); return; }
       case 'reemp': { const r = await api('POST', '/api/orders', { type: 'reemplazos', params: d }); toast('Pedido enviado a aprobación'); location.hash = '#/pedidos/' + r.id; return; }
       case 'histsearch': location.hash = '#/historial' + (d.q ? '?q=' + encodeURIComponent(d.q) : ''); return;
       case 'codesearch': location.hash = '#/codigos?q=' + encodeURIComponent(d.q); return;
