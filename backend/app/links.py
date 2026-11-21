@@ -222,25 +222,43 @@ def ps_read(paths):
     return {x["l"]: x["t"] for x in arr if x.get("t")}
 
 
+_WINDOWS = os.name == "nt"
+
+
+def _ps_write(path, target):
+    script = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:SV_LNK);"
+              "$s.TargetPath=$env:SV_TGT;$s.Save()")
+    return _ps(script, {"SV_LNK": str(path), "SV_TGT": target}) is not None
+
+
+def _ultimo(ruta):
+    return ruta.replace("/", "\\").rstrip("\\").rsplit("\\", 1)[-1].lower()
+
+
 def write_link(path, target, is_dir=False):
     """Cambia (o crea) el destino de un .lnk. Primero con Windows; si no, con el escritor propio.
-    Despues relee y confirma; si no coincide lanza OSError."""
+    Despues relee con el lector del portal y confirma; si no coincide lanza OSError.
+    Windows, cuando no puede resolver la ruta (por ejemplo la unidad Z: no esta conectada en esa computadora),
+    a veces actualiza una parte del acceso y deja la otra con el destino viejo: el portal lo volveria a ver
+    como desactualizado. En ese caso se reescribe con el escritor propio."""
     path = Path(path)
-    done = False
-    if os.name == "nt":
-        script = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:SV_LNK);"
-                  "$s.TargetPath=$env:SV_TGT;$s.Save()")
-        done = _ps(script, {"SV_LNK": str(path), "SV_TGT": target}) is not None
+    want = _ultimo(target)
+    done = _WINDOWS and _ps_write(path, target)
+
+    def apunta():
+        """True/False si el portal lo lee y apunta (o no) al archivo nuevo; None si no lo puede leer."""
+        try:
+            raws = read_link(path)["raws"]
+        except Exception:
+            return None
+        return (_ultimo(raws[0]) == want) if raws else None
+
     if not done:
         path.write_bytes(build_lnk(target, is_dir))
-    want = target.replace("/", "\\").rstrip("\\").rsplit("\\", 1)[-1].lower()
-    last = lambda r: r.replace("/", "\\").rstrip("\\").rsplit("\\", 1)[-1].lower()
-    ok = False
-    try:
-        ok = any(last(r) == want for r in read_link(path)["raws"])
-    except Exception:
-        ok = False
-    if not ok and os.name == "nt":
-        ok = last(ps_read([path]).get(str(path), "")) == want
+    elif apunta() is False:
+        path.write_bytes(build_lnk(target, is_dir))
+    ok = apunta()
+    if ok is None and _WINDOWS:
+        ok = _ultimo(ps_read([path]).get(str(path), "")) == want
     if not ok:
         raise OSError("no se pudo confirmar el nuevo destino del acceso directo")

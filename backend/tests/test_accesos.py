@@ -212,3 +212,17 @@ def test_planilla_gemela_en_google_sheets(env):
     assert "drive" not in por["MDA300_L1V1R2_10-10-24.xlsx"] and sim["drive_files"] == 1
     pv = services.preview(services.get_user("ing@x"), {"from": "DIS206AA", "to": "DIS206BA"})
     assert any("Google Sheets" in w for w in pv["warnings"])
+
+
+def test_si_windows_deja_el_destino_viejo_se_reescribe_con_el_escritor_propio(tmp_path, monkeypatch):
+    """En una computadora sin la unidad Z:, Windows puede guardar el acceso con el destino viejo a medias.
+    El portal tiene que dejarlo apuntando al archivo nuevo igual."""
+    from app import links
+    lnk = tmp_path / "acceso.lnk"
+    lnk.write_bytes(links.build_lnk(r"Z:\MODULOS\MDA100\MDA100_L1V1R0_14-07-22.xlsx"))
+    monkeypatch.setattr(links, "_WINDOWS", True)
+    monkeypatch.setattr(links, "_ps_write", lambda path, target: True)      # "Windows dice que guardo", pero no cambio nada
+    monkeypatch.setattr(links, "ps_read", lambda paths: {})
+    nuevo = r"Z:\MODULOS\MDA100\MDA100_L1V1R1_20-11-26.xlsx"
+    links.write_link(lnk, nuevo)
+    assert links.read_link(lnk)["raws"][0] == nuevo
