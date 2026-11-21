@@ -8,8 +8,14 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   role TEXT NOT NULL,
   pw_hash TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  must_change INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS login_fail (
+  email TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_login_fail ON login_fail(email, at);
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type TEXT NOT NULL,
@@ -78,5 +84,9 @@ def connect():
 def init_db():
     con = connect()
     con.executescript(SCHEMA)
+    # Bases creadas antes de esta version: agregar lo que falta (sin tocar los datos existentes).
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+    if "must_change" not in cols:
+        con.execute("ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0")
     con.commit()
     con.close()

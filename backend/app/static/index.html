@@ -152,7 +152,16 @@ async function api(method, path, body) {
   return data;
 }
 function toast(msg, err) { const d = document.createElement('div'); d.innerHTML = ic(err ? 'alert' : 'check-circle') + '<span>' + esc(msg) + '</span>'; if (err) d.className = 'err'; $('#toast').appendChild(d); setTimeout(() => d.remove(), err ? 6000 : 3500); }
-function modal(html) { $('#modalbox').innerHTML = `<div class="overlay" data-act="mclose-bg"><div class="modal" role="dialog">${html}</div></div>`; }
+function modal(html, force) { $('#modalbox').innerHTML = `<div class="overlay"${force ? '' : ' data-act="mclose-bg"'}><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`; }
+/* clave temporal: ventana que no se puede cerrar hasta elegir una clave propia */
+function forcePw() {
+  modal(`${h2i('lock', 'Elegí tu clave')}<div class="notice info">Ingresaste con una clave temporal. Para seguir, elegí una clave propia que solo vos conozcas.</div><form data-form="chpw"><div class="f"><label for="pw0">Clave temporal (la que te dieron)</label><input id="pw0" name="current" type="password" autocomplete="current-password" required></div><div class="f"><label for="pw1">Clave nueva (8 o más caracteres)</label><input id="pw1" name="new" type="password" minlength="8" autocomplete="new-password" required></div><div class="f"><label for="pw2">Repetir la clave nueva</label><input id="pw2" name="again" type="password" minlength="8" autocomplete="new-password" required></div><div class="acts"><button class="btn primary" type="submit">${ic('check')} Guardar y entrar</button><button class="btn" type="button" data-act="logout">${ic('log-out', 'sm')} Salir</button></div></form>`, true);
+}
+/* muestra una sola vez la clave temporal de alguien (alta o restablecimiento) */
+function tempModal(email, temp) {
+  if (!temp) return;
+  modal(`${h2i('lock', 'Clave temporal')}<p>Clave temporal de <b>${esc(email)}</b>:</p><p class="mono" style="font-size:22px;letter-spacing:.04em;user-select:all;background:var(--paper);padding:10px 14px;border-radius:9px;display:inline-block">${esc(temp)}</p><div class="notice"><b>Anotala ahora: no se vuelve a mostrar.</b> Entregásela a la persona; al ingresar, el portal le pide elegir una clave propia. Nadie, ni Sistemas, puede ver las claves después.</div><div class="acts"><button class="btn primary" data-act="mclose">${ic('check')} Listo</button></div>`);
+}
 function closeModal() { $('#modalbox').innerHTML = ''; }
 async function guard(fn) { try { return await fn(); } catch (e) { toast(e.message, true); } }
 
@@ -175,7 +184,7 @@ function loginView(msg) {
   <p class="muted" style="margin:4px 0 18px">Usá tu correo de la empresa.</p>${msg ? `<div class="notice bad">${esc(msg)}</div>` : ''}
   <form data-form="login"><div class="f"><label for="em">Correo</label><div class="ibox">${ic('mail')}<input id="em" name="email" type="email" autocomplete="username" required></div></div>
   <div class="f"><label for="pw">Clave</label><div class="ibox">${ic('lock')}<input id="pw" name="password" type="password" autocomplete="current-password" required><button class="eye btn" type="button" data-act="showpw" aria-label="Mostrar u ocultar la clave">${ic('eye')}</button></div></div>
-  <button class="btn primary" type="submit">Ingresar ${ic('arrow-right')}</button></form></div></div></div>`;
+  <button class="btn primary" type="submit">Ingresar ${ic('arrow-right')}</button></form><p class="muted small" style="margin-top:16px">¿Olvidaste tu clave? Pedile a Sistemas que la restablezca.</p></div></div></div>`;
 }
 
 /* ====================== estructura ====================== */
@@ -385,8 +394,8 @@ V.usuarios = async () => {
   const list = await api('GET', '/api/users');
   const roles = ['Abastecimiento', 'Ingeniería', 'Gerencia', 'Sistemas'];
   return head('usuarios', 'Usuarios', 'Quién puede entrar y qué área tiene. El área define qué puede hacer.') + `
-  <div class="panel" style="overflow:auto"><table><thead><tr><th>Persona</th><th>Área</th><th>Estado</th></tr></thead><tbody>${list.map((u) => `<tr><td><div class="tcell">${avatar(u.name, 'sm')}<div><b>${esc(u.name)}</b><div class="muted small">${esc(u.email)}</div></div></div></td><td>${roles.includes(u.role) ? `<select data-change="role" data-email="${esc(u.email)}" style="width:auto" aria-label="Área de ${esc(u.name)}">${roles.map((r) => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select>` : `<span class="pill st p-gray">${esc(u.role)}</span> <span class="muted small">usuario de servicio</span>`}</td><td>${u.active ? '<span class="pill st p-ok">Activo</span>' : '<span class="pill st p-gray">Inactivo</span>'} <button class="btn sm" data-act="toggleuser" data-email="${esc(u.email)}" data-active="${u.active ? 1 : 0}">${u.active ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('')}</tbody></table></div>
-  <div class="panel">${h2i('plus', 'Dar de alta')}<form data-form="newuser"><div class="two"><div class="f"><label for="ue">Correo</label><input id="ue" name="email" type="email" required></div><div class="f"><label for="un">Nombre</label><input id="un" name="name" required></div></div><div class="two"><div class="f"><label for="ur">Área</label><select id="ur" name="role">${roles.map((r) => `<option>${r}</option>`).join('')}</select></div><div class="f"><label for="up">Clave inicial (8 o más caracteres)</label><input id="up" name="password" type="text" minlength="8" required></div></div><button class="btn primary" type="submit">${ic('plus')} Crear usuario</button></form></div>`;
+  <div class="panel" style="overflow:auto"><table><thead><tr><th>Persona</th><th>Área</th><th>Estado</th></tr></thead><tbody>${list.map((u) => `<tr><td><div class="tcell">${avatar(u.name, 'sm')}<div><b>${esc(u.name)}</b><div class="muted small">${esc(u.email)}</div></div></div></td><td>${roles.includes(u.role) ? `<select data-change="role" data-email="${esc(u.email)}" style="width:auto" aria-label="Área de ${esc(u.name)}">${roles.map((r) => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select>` : `<span class="pill st p-gray">${esc(u.role)}</span> <span class="muted small">usuario de servicio</span>`}</td><td>${u.active ? '<span class="pill st p-ok">Activo</span>' : '<span class="pill st p-gray">Inactivo</span>'}${u.must_change ? ' <span class="pill st p-pend" title="Todavía no eligió una clave propia">Clave temporal</span>' : ''} <button class="btn sm" data-act="toggleuser" data-email="${esc(u.email)}" data-active="${u.active ? 1 : 0}">${u.active ? 'Desactivar' : 'Activar'}</button>${roles.includes(u.role) ? ` <button class="btn sm" data-act="resetpw" data-email="${esc(u.email)}">${ic('lock', 'sm')} Restablecer clave</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+  <div class="panel">${h2i('plus', 'Dar de alta')}<form data-form="newuser"><div class="two"><div class="f"><label for="ue">Correo</label><input id="ue" name="email" type="email" required></div><div class="f"><label for="un">Nombre</label><input id="un" name="name" required></div></div><div class="two"><div class="f"><label for="ur">Área</label><select id="ur" name="role">${roles.map((r) => `<option>${r}</option>`).join('')}</select></div><div class="f"><label for="up">Clave inicial (opcional)</label><input id="up" name="password" type="text" autocomplete="off" placeholder="Vacío: el portal genera una"><div class="hint">Siempre tiene que cambiarla al ingresar.</div></div></div><button class="btn primary" type="submit">${ic('plus')} Crear usuario</button></form></div>`;
 };
 
 V.estado = async () => {
@@ -401,6 +410,7 @@ async function render() {
     $('#root').innerHTML = '<div class="loading" style="padding:60px 20px;text-align:center"><span class="spin"></span> Abriendo el portal…</div>';
     try { const me = await api('GET', '/api/me'); S.user = me.user; S.perms = me.perms; S.ro = !!me.read_only; S.warn = me.warnings || []; } catch (e) { return loginView(); }
   }
+  if (S.user.must_change) { $('#root').innerHTML = shell('', ''); forcePw(); return; }
   if (!S.names) { try { S.names = await api('GET', '/api/people'); } catch (e) { S.names = {}; } }
   const [path, qs] = (location.hash.slice(2) || 'inicio').split('?');
   const [route, arg] = path.split('/'); const q = new URLSearchParams(qs || '');
@@ -467,6 +477,8 @@ document.addEventListener('click', (e) => {
     if (a === 'docleanup') { const r = await api('POST', '/api/cleanup', { dry_run: false }); closeModal(); toast(`Listo: ${pl(r.moved.length, 'archivo')} a OBSOLETO`); return render(); }
     if (a === 'toggleuser') { await api('PATCH', '/api/users/' + encodeURIComponent(t.dataset.email), { active: t.dataset.active !== '1' }); return render(); }
     if (a === 'usecode') { location.hash = t.dataset.href; return; }
+    if (a === 'resetpw') return modal(`${h2i('lock', 'Restablecer la clave')}<p>Se le va a poner una clave temporal nueva a <b>${esc(t.dataset.email)}</b> y tendrá que cambiarla al ingresar. La clave que tiene hoy no se puede ver: simplemente deja de servir. Si estaba bloqueada por intentos fallidos, también se desbloquea.</p><div class="acts"><button class="btn primary" data-act="doresetpw" data-email="${esc(t.dataset.email)}">${ic('lock')} Restablecer</button><button class="btn" data-act="mclose">${ic('arrow-left')} Volver</button></div>`);
+    if (a === 'doresetpw') { const r = await api('POST', '/api/users/' + encodeURIComponent(t.dataset.email) + '/reset', {}); render(); return tempModal(t.dataset.email, r.temp); }
   });
 });
 
@@ -517,8 +529,8 @@ document.addEventListener('submit', (e) => {
       case 'search': location.hash = '#/buscar?q=' + encodeURIComponent(d.q); return;
       case 'req': await api('POST', '/api/requests', d); toast('Aviso enviado a Ingeniería'); return render();
       case 'gen': await api('POST', '/api/codes', { ...d, request_id: d.request_id ? Number(d.request_id) : null }); closeModal(); toast('Código generado'); return render();
-      case 'chpw': if (d.new !== d.again) throw new Error('Las dos claves nuevas no coinciden.'); await api('POST', '/api/me/password', { current: d.current, new: d.new }); closeModal(); toast('Clave cambiada'); return;
-      case 'newuser': await api('POST', '/api/users', d); toast('Usuario creado'); S.names = null; S.user = null; return render();
+      case 'chpw': { if (d.new !== d.again) throw new Error('Las dos claves nuevas no coinciden.'); const forced = S.user.must_change; await api('POST', '/api/me/password', { current: d.current, new: d.new }); closeModal(); toast('Clave cambiada'); if (forced) { S.user.must_change = false; render(); } return; }
+      case 'newuser': { const r = await api('POST', '/api/users', d); toast('Usuario creado'); S.names = null; S.user = null; await render(); return tempModal(d.email.trim().toLowerCase(), r.temp); }
     }
   });
 });

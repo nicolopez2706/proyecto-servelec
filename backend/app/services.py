@@ -2,6 +2,8 @@
 reversion y auditoria. No depende de FastAPI (se prueba sola)."""
 import datetime as dt
 import json
+import math
+import secrets
 from pathlib import Path
 
 from . import engine, events
@@ -34,18 +36,68 @@ def event(con, order_id, by, text):
 
 
 # ---------- usuarios ----------
+class LoginLocked(Exception):
+    """Demasiados intentos fallidos: el ingreso de ese correo queda bloqueado un rato."""
+
+
+# Claves que no se aceptan como clave propia (las de siempre y la clave inicial vieja del prototipo).
+CLAVES_DEBILES = {"cambiar123", "12345678", "123456789", "1234567890", "password", "password1", "contraseña",
+                  "qwerty123", "servelec", "servelec123", "servelec2026", "abcd1234"}
+_ALFABETO_TEMPORAL = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin 0/O, 1/l/I: no se confunden al dictarla
+_clave_ficticia = None
+
+
+def _validar_clave(new, email=""):
+    if len(new) < 8:
+        raise ValueError("La clave nueva debe tener al menos 8 caracteres.")
+    if new.lower() in CLAVES_DEBILES:
+        raise ValueError("Esa clave es demasiado común. Elegí otra.")
+    if email and new.lower() == email.split("@")[0].lower():
+        raise ValueError("La clave no puede ser igual a tu correo.")
+
+
+def clave_temporal(n=10):
+    """Clave inicial aleatoria (para dar de alta o restablecer). Se muestra una sola vez y obliga a cambiarla."""
+    return "".join(secrets.choice(_ALFABETO_TEMPORAL) for _ in range(n))
+
+
 def user_public(r):
-    return {"email": r["email"], "name": r["name"], "role": r["role"], "active": bool(r["active"])}
+    return {"email": r["email"], "name": r["name"], "role": r["role"], "active": bool(r["active"]),
+            "must_change": bool(r["must_change"])}
 
 
 def authenticate(email, password):
+    """Devuelve el usuario si la clave es correcta, None si no. Tras LOGIN_MAX_FAILS intentos fallidos seguidos de un
+    mismo correo, bloquea ese correo LOGIN_LOCK_MINUTES minutos (LoginLocked)."""
+    global _clave_ficticia
+    email = email.strip().lower()
     con = connect()
     try:
-        r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email.strip().lower(),)).fetchone()
-        if r and check_password(password, r["pw_hash"]):
+        corte = (dt.datetime.now() - dt.timedelta(minutes=settings.login_lock_minutes)).isoformat(timespec="seconds")
+        n, ultimo = tuple(con.execute("SELECT COUNT(*), MAX(at) FROM login_fail WHERE email=? AND at>=?", (email, corte)).fetchone())
+        if n >= settings.login_max_fails:
+            pasaron = (dt.datetime.now() - dt.datetime.fromisoformat(ultimo)).total_seconds()
+            faltan = max(1, math.ceil((settings.login_lock_minutes * 60 - pasaron) / 60))
+            raise LoginLocked(f"Demasiados intentos fallidos. Probá de nuevo en {faltan} {'minuto' if faltan == 1 else 'minutos'}, "
+                              "o pedile a Sistemas que restablezca tu clave.")
+        r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (email,)).fetchone()
+        if r:
+            ok = check_password(password, r["pw_hash"])
+        else:                                   # mismo trabajo que con un correo real: no delata cuales existen
+            if _clave_ficticia is None:
+                _clave_ficticia = hash_password("ficticia")
+            check_password(password, _clave_ficticia)
+            ok = False
+        if ok:
+            con.execute("DELETE FROM login_fail WHERE email=?", (email,))
             audit(con, r["email"], "Ingresó")
             con.commit()
             return user_public(r)
+        con.execute("INSERT INTO login_fail(email,at) VALUES(?,?)", (email, now()))
+        con.execute("DELETE FROM login_fail WHERE at<?", ((dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds"),))
+        if n + 1 >= settings.login_max_fails:
+            audit(con, email, "Ingreso bloqueado por intentos fallidos", email, f"{settings.login_max_fails} intentos seguidos")
+        con.commit()
         return None
     finally:
         con.close()
@@ -64,16 +116,15 @@ def change_password(user, current, new):
     """Cada persona cambia su propia clave. Pide la clave actual para que nadie la cambie desde una sesion abierta ajena."""
     if not current or not new:
         raise ValueError("Completá la clave actual y la nueva.")
-    if len(new) < 8:
-        raise ValueError("La clave nueva debe tener al menos 8 caracteres.")
     if new == current:
         raise ValueError("La clave nueva tiene que ser distinta de la actual.")
+    _validar_clave(new, user["email"])
     con = connect()
     try:
         r = con.execute("SELECT * FROM users WHERE email=? AND active=1", (user["email"],)).fetchone()
         if not r or not check_password(current, r["pw_hash"]):
             raise ValueError("La clave actual no es correcta.")
-        con.execute("UPDATE users SET pw_hash=? WHERE email=?", (hash_password(new), user["email"]))
+        con.execute("UPDATE users SET pw_hash=?, must_change=0 WHERE email=?", (hash_password(new), user["email"]))
         audit(con, user["email"], "Cambió su clave")
         con.commit()
         return {"ok": True}
@@ -81,16 +132,23 @@ def change_password(user, current, new):
         con.close()
 
 
-def create_user(actor, email, name, role, password):
+def create_user(actor, email, name, role, password=""):
+    """Alta de usuario. Sin clave, el portal genera una temporal (se muestra una sola vez). En ambos casos la persona
+    tiene que cambiarla en su primer ingreso."""
     require(actor, "admin")
     if role not in ROLES:
         raise ValueError("Rol inválido.")
-    if len(password) < 8:
-        raise ValueError("La clave debe tener al menos 8 caracteres.")
+    email = email.strip().lower()
+    if "@" not in email:
+        raise ValueError("Escribí un correo válido.")
+    generada = not password
+    password = password or clave_temporal()
+    if not generada:
+        _validar_clave(password, email)
     con = connect()
     try:
-        con.execute("INSERT INTO users(email,name,role,pw_hash) VALUES(?,?,?,?)",
-                    (email.strip().lower(), name.strip(), role, hash_password(password)))
+        con.execute("INSERT INTO users(email,name,role,pw_hash,must_change) VALUES(?,?,?,?,1)",
+                    (email, name.strip(), role, hash_password(password)))
         audit(con, actor["email"], "Creó usuario", email, role)
         con.commit()
     except Exception as e:
@@ -99,6 +157,29 @@ def create_user(actor, email, name, role, password):
         raise
     finally:
         con.close()
+    return {"ok": True, "temp": password if generada else None}
+
+
+def reset_password(actor, email, new=""):
+    """Sistemas restablece la clave de alguien que la olvido (o desbloquea su ingreso). Nadie puede ver la clave
+    anterior: se pone una temporal nueva, que se muestra una sola vez y obliga a cambiarla al ingresar."""
+    require(actor, "admin")
+    email = email.strip().lower()
+    generada = not new
+    new = new or clave_temporal()
+    if not generada:
+        _validar_clave(new, email)
+    con = connect()
+    try:
+        if not con.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+            raise LookupError("No existe ese usuario.")
+        con.execute("UPDATE users SET pw_hash=?, must_change=1 WHERE email=?", (hash_password(new), email))
+        con.execute("DELETE FROM login_fail WHERE email=?", (email,))
+        audit(con, actor["email"], "Restableció la clave de", email)          # la clave nunca se guarda en la auditoria
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True, "temp": new if generada else None}
 
 
 def list_users(actor):

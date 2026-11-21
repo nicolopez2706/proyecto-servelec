@@ -1,8 +1,9 @@
 """Configuracion. Todo lo que cambia entre la laptop y la computadora de la empresa va en .env."""
 import os
+import secrets
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent.parent
+BASE =Path(__file__).resolve().parent.parent
 
 
 def _load_env():
@@ -19,13 +20,69 @@ def _load_env():
 
 _load_env()
 
+# Valores de ejemplo que NUNCA se aceptan como clave secreta (son publicos: estan en el codigo y en .env.example).
+_CLAVES_PUBLICAS = {"dev-no-usar-en-produccion", "cambiar-por-una-clave-larga-y-aleatoria", "cambiar-por-una-clave-larga"}
+_clave_auto = {}
+
+
+def _clave_en_archivo(ruta: Path) -> str:
+    """Clave secreta generada sola y guardada en DATA_DIR\\secret.key (se crea una vez y se reusa)."""
+    if ruta in _clave_auto:
+        return _clave_auto[ruta]
+    try:
+        k = ruta.read_text(encoding="utf-8").strip()
+    except OSError:
+        k = ""
+    if len(k) < 32:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        nueva = secrets.token_urlsafe(48)
+        try:
+            with open(ruta, "x", encoding="utf-8") as f:        # "x": si otro proceso la creo justo antes, no la pisa
+                f.write(nueva)
+            k = nueva
+            try:
+                os.chmod(ruta, 0o600)
+            except OSError:
+                pass
+        except FileExistsError:
+            k = ruta.read_text(encoding="utf-8").strip()
+    _clave_auto[ruta] = k
+    return k
+
 
 class Settings:
     """Se lee en cada acceso para poder cambiarla en los tests."""
 
     @property
     def secret_key(self):
-        return os.getenv("SECRET_KEY", "dev-no-usar-en-produccion")
+        """SECRET_KEY firma las sesiones. Si no esta en .env (o es uno de los valores de ejemplo), el portal genera una
+        clave aleatoria propia y la guarda en DATA_DIR\\secret.key: nunca se usa una clave conocida."""
+        k = os.getenv("SECRET_KEY", "").strip()
+        if k and k not in _CLAVES_PUBLICAS:
+            return k
+        return _clave_en_archivo(self.data_dir / "secret.key")
+
+    @property
+    def secret_key_origin(self):
+        """'env' si viene de .env, 'archivo' si la genero el portal."""
+        k = os.getenv("SECRET_KEY", "").strip()
+        return "env" if k and k not in _CLAVES_PUBLICAS else "archivo"
+
+    @property
+    def login_max_fails(self):
+        """LOGIN_MAX_FAILS: intentos fallidos seguidos antes de bloquear el ingreso de ese correo (por defecto 5)."""
+        try:
+            return max(1, int(os.getenv("LOGIN_MAX_FAILS", "5")))
+        except ValueError:
+            return 5
+
+    @property
+    def login_lock_minutes(self):
+        """LOGIN_LOCK_MINUTES: cuanto dura el bloqueo (por defecto 15 minutos)."""
+        try:
+            return max(1, int(os.getenv("LOGIN_LOCK_MINUTES", "15")))
+        except ValueError:
+            return 15
 
     @property
     def token_hours(self):

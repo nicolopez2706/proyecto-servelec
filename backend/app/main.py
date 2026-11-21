@@ -33,6 +33,9 @@ def _calentar():
 @asynccontextmanager
 async def lifespan(app):
     init_db()
+    settings.secret_key                                  # la crea ahora si hace falta (y no en el primer ingreso)
+    if settings.secret_key_origin == "archivo":
+        print(f"[portal] SECRET_KEY no esta en .env: se usa la clave propia guardada en {settings.data_dir / 'secret.key'}", flush=True)
     try:
         for oid in services.recover_interrupted():
             print(f"[portal] el pedido #{oid} había quedado a medias y se recuperó", flush=True)
