@@ -279,6 +279,8 @@ def ejecutar(user, accion, params):
     if accion not in ACCIONES:
         raise ValueError("El asistente no puede hacer esa acción.")
     params = params or {}
+    if not isinstance(params, dict):
+        raise ValueError("Los datos de la acción no son válidos.")
     if accion == "create_order":
         o = services.create_order(user, "codigo", params)
         return _r(f"Listo: el pedido #{o['id']} quedó enviado a aprobación ({o['params']['from']} → {o['params']['to']}).",
