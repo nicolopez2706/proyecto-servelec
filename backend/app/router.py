@@ -3,7 +3,7 @@ FastAPI (main.py) y el servidor de prueba usan esta misma tabla."""
 import re
 import traceback
 
-from . import engine, events, services
+from . import assistant, engine, events, services
 from .config import settings
 from .permissions import PERMS, PermissionDenied, require
 from .security import make_token, read_token
@@ -45,6 +45,7 @@ ROUTES = [
     ("POST", r"/api/me/password", lambda u, m, q, b: services.change_password(u, b.get("current", ""), b.get("new", ""))),
     ("GET", r"/api/health", _health),
     ("POST", r"/api/events/test", lambda u, m, q, b: (require(u, "admin"), events.send_test(u["email"]))[1]),
+    ("POST", r"/api/assistant", lambda u, m, q, b: assistant.handle(u, b)),
     ("GET", r"/api/people", lambda u, m, q, b: services.people(u)),
     ("GET", r"/api/codes", lambda u, m, q, b: services.catalog_list(u, q.get("q", ""))),
     ("POST", r"/api/codes", lambda u, m, q, b: services.generate_code(u, b.get("code"), b.get("desc"), b.get("kind", ""), b.get("alts"), b.get("request_id"))),
