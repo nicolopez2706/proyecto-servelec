@@ -2,7 +2,9 @@
 y que la persona tiene que cambiar en su primer ingreso (el portal no la deja seguir hasta que lo haga).
 
 Uso (desde la carpeta backend, con el entorno virtual activado):
-    python seed.py                   crea los usuarios que falten, cada uno con su clave temporal
+    python seed.py                   crea los usuarios de la lista, cada uno con su clave temporal, SOLO si la base todavía
+                                     no tiene usuarios (si ya hay, no crea nada: así no reaparecen los que se borraron a propósito)
+    python seed.py --completar       crea los de la lista que falten aunque ya haya otros usuarios
     python seed.py --exigir-cambio   obliga a TODOS los usuarios ya existentes a cambiar su clave en el próximo ingreso
                                      (útil si la base viene de cuando todos tenían la misma clave inicial)
     python seed.py --solo-correos    muestra los usuarios que hay, sin tocar nada
@@ -65,6 +67,16 @@ if __name__ == "__main__":
     if "--exigir-cambio" in sys.argv:
         print(f"Listo: {exigir_cambio()} usuario(s) tendrán que cambiar su clave en el próximo ingreso.")
         sys.exit(0)
+    if "--completar" not in sys.argv:
+        con = connect()
+        try:
+            hay = con.execute("SELECT COUNT(*) FROM users WHERE role<>?", (SERVICE_ROLE,)).fetchone()[0]
+        finally:
+            con.close()
+        if hay:
+            print(f"La base ya tiene {hay} usuario(s): no se creó ninguno, para no volver a crear los que se borraron a propósito.\n"
+                  "Para agregar los de la lista inicial que falten: python seed.py --completar")
+            sys.exit(0)
     fija = os.getenv("SEED_PASSWORD") or None
     if fija and fija.lower() in CLAVES_DEBILES:
         print("Aviso: SEED_PASSWORD es una clave conocida (por ejemplo la de ejemplo vieja): se ignora y cada usuario recibe una clave al azar.")
