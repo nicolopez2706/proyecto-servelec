@@ -1,6 +1,6 @@
 ﻿<#
  Deja el portal y el respaldo funcionando solos. PowerShell COMO ADMINISTRADOR.
- NO ESTÁ PROBADO EN WINDOWS todavía.
+ Probado en Windows (laptop de Nico, 23/11/2026) con la computadora ENCHUFADA; falta probarlo en la oficina con la cuenta de servicio.
 
  Crea dos tareas:
    "Portal SERVELEC"          prende el portal al arrancar la computadora y lo vuelve a prender si se cae.
@@ -16,6 +16,12 @@ $ErrorActionPreference = "Stop"
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "Abrir PowerShell con 'Ejecutar como administrador' y volver a correr esto." }
 $t1 = "Portal SERVELEC"; $t2 = "Respaldo Portal SERVELEC"
+# Registrar una tarea con una clave equivocada falla sin cortar el script: por eso se comprueba que la tarea exista de verdad.
+function Confirmar-Tarea($nombre) {
+    if (-not (Get-ScheduledTask -TaskName $nombre -ErrorAction SilentlyContinue)) {
+        throw "No se pudo crear la tarea '$nombre'. Lo más común: la clave de la cuenta '$Cuenta' está mal (con PIN o huella no sirve: hace falta la contraseña de la cuenta). No se creó nada; corregir y volver a correr."
+    }
+}
 if ($Quitar) {
     foreach ($t in $t1, $t2) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
     Write-Host "Tareas eliminadas."; return
@@ -31,9 +37,12 @@ $clave = $cred.GetNetworkCredential().Password
 $accion = New-ScheduledTaskAction -Execute "powershell.exe" -WorkingDirectory $back `
     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'iniciar_portal.ps1')`""
 $disparador = New-ScheduledTaskTrigger -AtStartup
-$ajustes = New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
+# Por defecto Windows NO arranca una tarea si la computadora funciona con batería (una laptop sin cargador queda "en cola" para siempre).
+$ajustes = New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Unregister-ScheduledTask -TaskName $t1 -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask -TaskName $t1 -Action $accion -Trigger $disparador -Settings $ajustes -User $Cuenta -Password $clave -RunLevel Highest | Out-Null
+Register-ScheduledTask -TaskName $t1 -Action $accion -Trigger $disparador -Settings $ajustes -User $Cuenta -Password $clave -RunLevel Highest -ErrorAction Stop | Out-Null
+Confirmar-Tarea $t1
 Write-Host "Tarea '$t1' creada (se prende sola al arrancar)."
 
 if ($DestinoRespaldo -ne "") {
@@ -43,7 +52,9 @@ if ($DestinoRespaldo -ne "") {
     $accion2 = New-ScheduledTaskAction -Execute $pyvenv -Argument $argumentos -WorkingDirectory $back
     $disparador2 = New-ScheduledTaskTrigger -Daily -At 2:00AM
     Unregister-ScheduledTask -TaskName $t2 -Confirm:$false -ErrorAction SilentlyContinue
-    Register-ScheduledTask -TaskName $t2 -Action $accion2 -Trigger $disparador2 -User $Cuenta -Password $clave | Out-Null
+    $ajustes2 = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $t2 -Action $accion2 -Trigger $disparador2 -Settings $ajustes2 -User $Cuenta -Password $clave -ErrorAction Stop | Out-Null
+    Confirmar-Tarea $t2
     Write-Host "Tarea '$t2' creada (todos los días a las 02:00)."
 } else {
     Write-Host "Sin respaldo automático: volver a correr con -DestinoRespaldo para crearlo."

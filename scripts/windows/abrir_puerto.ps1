@@ -1,6 +1,6 @@
 ﻿<#
  Deja que los compañeros de la red de la oficina entren al portal (puerto 8000). PowerShell COMO ADMINISTRADOR.
- NO ESTÁ PROBADO EN WINDOWS todavía.
+ Probado en Windows (laptop de Nico, 23/11/2026): abre, anda desde otro dispositivo y se quita limpio; falta probarlo en la oficina.
  Solo abre para la red local (LocalSubnet), nunca para internet. Para cerrar de nuevo:  -Quitar
  El puerto de n8n (5678) NO se abre nunca: n8n se usa solo desde esta computadora.
 #>

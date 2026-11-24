@@ -1,6 +1,6 @@
 ﻿<#
  Prende el portal. Es lo que ejecuta la tarea programada al arrancar la computadora.
- NO ESTÁ PROBADO EN WINDOWS todavía.
+ Probado en Windows (laptop de Nico, 23/11/2026), incluso desde el celular por Wi-Fi; falta probarlo en la oficina.
  -SoloEstaPC  : el portal solo se abre desde esta computadora (127.0.0.1). Sin eso lo pueden abrir los demás de la red.
 #>
 param([switch]$SoloEstaPC, [int]$Puerto = 8000)
